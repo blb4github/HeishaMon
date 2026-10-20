@@ -2057,7 +2057,13 @@ void loop() {
   checkBootButton();
 
   //webserver function
+  // Diagnostic: a slow synchronous HTTP pass delays MQTT, OpenTherm and heat pump processing.
+  const uint32_t webStart = millis();
   webserver_loop();
+  const uint32_t webElapsed = millis() - webStart;
+  if (webElapsed >= 100) {
+    loggingSerial.printf("DIAG WEB loop=%lu ms\n", (unsigned long)webElapsed);
+  }
 
   // check wifi
   check_wifi();
