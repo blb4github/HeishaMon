@@ -92,7 +92,16 @@ static int16_t safe_write(struct webserver_t *client, const uint8_t *buf, uint16
     yield();
   }
 #endif
-  return client->client->write(buf, len);
+  const uint32_t started = millis();
+  const int16_t written = client->client->write(buf, len);
+  const uint32_t elapsed = millis() - started;
+  if (elapsed >= 100) {
+    loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d client=%s:%u\n",
+      (unsigned long)elapsed, (unsigned int)len, (int)written,
+      client->client->remoteIP().toString().c_str(),
+      (unsigned int)client->client->remotePort());
+  }
+  return written;
 }
 
 static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len) {
@@ -107,7 +116,16 @@ static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len)
     yield();
   }
 #endif
-  return client->client->write_P((char *)buf, len);
+  const uint32_t started = millis();
+  const int16_t written = client->client->write_P((char *)buf, len);
+  const uint32_t elapsed = millis() - started;
+  if (elapsed >= 100) {
+    loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d client=%s:%u\n",
+      (unsigned long)elapsed, (unsigned int)len, (int)written,
+      client->client->remoteIP().toString().c_str(),
+      (unsigned int)client->client->remotePort());
+  }
+  return written;
 }
 
 #if defined(ESP8266) || defined(ESP32)
@@ -2419,10 +2437,18 @@ void webserver_loop(void) {
         if(clients[i].data.client->connected() || clients[i].data.client->available()) {
           if(clients[i].data.client->available()) {
             uint8_t *p = (uint8_t *)rbuffer;
+            const uint32_t readStart = millis();
             size = clients[i].data.client->read(
               p,
               WEBSERVER_READ_SIZE
             );
+            const uint32_t readElapsed = millis() - readStart;
+            if (readElapsed >= 100) {
+              loggingSerial.printf("DIAG WEB read=%lu ms bytes=%u client=%s:%u\n",
+                (unsigned long)readElapsed, (unsigned int)size,
+                clients[i].data.client->remoteIP().toString().c_str(),
+                (unsigned int)clients[i].data.client->remotePort());
+            }
           }
         } else if(!clients[i].data.client->connected()) {
           clients[i].data.step = WEBSERVER_CLIENT_CLOSE;
@@ -2471,7 +2497,12 @@ void webserver_loop(void) {
           clients[i].data.callback(&clients[i].data, NULL);
         }
 
+        const uint32_t stopStart = millis();
         clients[i].data.client->stop();
+        const uint32_t stopElapsed = millis() - stopStart;
+        if (stopElapsed >= 100) {
+          loggingSerial.printf("DIAG WEB stop=%lu ms\n", (unsigned long)stopElapsed);
+        }
         webserver_reset_client(&clients[i].data);
       } break;
     }
