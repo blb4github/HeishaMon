@@ -101,6 +101,14 @@ static int16_t safe_write(struct webserver_t *client, const uint8_t *buf, uint16
       client->client->remoteIP().toString().c_str(),
       (unsigned int)client->client->remotePort());
   }
+  // A timeout (0), error, or short write makes this HTTP response incomplete.
+  // Do not continue with the sendlist: each subsequent ESP32 write can block
+  // for another ~10 seconds while core services are starved.
+  if (written != len) {
+    loggingSerial.printf("WEB write failed: requested=%u written=%d; closing client\n",
+      (unsigned int)len, (int)written);
+    client->step = WEBSERVER_CLIENT_CLOSE;
+  }
   return written;
 }
 
@@ -124,6 +132,14 @@ static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len)
       (unsigned long)elapsed, (unsigned int)len, (int)written,
       client->client->remoteIP().toString().c_str(),
       (unsigned int)client->client->remotePort());
+  }
+  // A timeout (0), error, or short write makes this HTTP response incomplete.
+  // Do not continue with the sendlist: each subsequent ESP32 write can block
+  // for another ~10 seconds while core services are starved.
+  if (written != len) {
+    loggingSerial.printf("WEB write failed: requested=%u written=%d; closing client\n",
+      (unsigned int)len, (int)written);
+    client->step = WEBSERVER_CLIENT_CLOSE;
   }
   return written;
 }
@@ -1477,6 +1493,9 @@ static int webserver_process_send(struct webserver_t *client) {
           client->lastseen = millis();
         }
       }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
     }
     i += n;
   }
@@ -1513,6 +1532,9 @@ static int webserver_process_send(struct webserver_t *client) {
                   client->lastseen = millis();
                 }
               }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
             }
           } else {
             if(client->async == 1) {
@@ -1523,6 +1545,9 @@ static int webserver_process_send(struct webserver_t *client) {
                   client->lastseen = millis();
                 }
               }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
             }
           }
           i += tmp->size;
@@ -1567,6 +1592,9 @@ static int webserver_process_send(struct webserver_t *client) {
                   client->lastseen = millis();
                 }
               }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
             }
           } else {
             if(client->async == 1) {
@@ -1577,6 +1605,9 @@ static int webserver_process_send(struct webserver_t *client) {
                   client->lastseen = millis();
                 }
               }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
             }
           }
           i += client->totallen;
@@ -1601,6 +1632,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
         } else {
           if(client->async == 1) {
@@ -1611,6 +1645,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
         }
         i += (tmp->size-client->ptr);
@@ -1654,6 +1691,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
         } else {
           if(client->async == 1) {
@@ -1664,6 +1704,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
         }
         client->ptr += client->totallen;
@@ -1679,6 +1722,9 @@ static int webserver_process_send(struct webserver_t *client) {
             client->lastseen = millis();
           }
         }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
       }
     }
   }
@@ -1725,6 +1771,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
           i += 5;
         } else {
@@ -1736,6 +1785,9 @@ static int webserver_process_send(struct webserver_t *client) {
                 client->lastseen = millis();
               }
             }
+      // Abort this response immediately if the TCP client stalled or accepted
+      // only part of the requested bytes. Cleanup happens on the next pass.
+      if(client->step == WEBSERVER_CLIENT_CLOSE) return -1;
           }
           i += 4;
         }
