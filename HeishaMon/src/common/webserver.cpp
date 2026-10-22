@@ -47,6 +47,9 @@
   #include "lwip/dns.h"
   #include "lwip/init.h"
   #include "lwip/errno.h"
+  #if defined(ESP32)
+    #include "lwip/sockets.h"
+  #endif
 
   #include "webserver.h"
   #include "base64.h"
@@ -93,7 +96,18 @@ static int16_t safe_write(struct webserver_t *client, const uint8_t *buf, uint16
   }
 #endif
   const uint32_t started = millis();
+#if defined(ESP32)
+  // WiFiClient::write can wait up to ~10 seconds for a slow TCP peer.
+  // One nonblocking send attempt prevents an HTTP response from starving
+  // MQTT, OpenTherm and the heat pump proxy. A short write aborts the
+  // response (existing error handling below), rather than corrupting it.
+  const int socket_fd = client->client->fd();
+  const int16_t written = socket_fd >= 0
+    ? (int16_t)lwip_send(socket_fd, buf, len, MSG_DONTWAIT)
+    : -1;
+#else
   const int16_t written = client->client->write(buf, len);
+#endif
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
     loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d client=%s:%u\n",
@@ -125,7 +139,15 @@ static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len)
   }
 #endif
   const uint32_t started = millis();
+#if defined(ESP32)
+  // Preserve identical nonblocking behavior for program-memory payloads.
+  const int socket_fd = client->client->fd();
+  const int16_t written = socket_fd >= 0
+    ? (int16_t)lwip_send(socket_fd, buf, len, MSG_DONTWAIT)
+    : -1;
+#else
   const int16_t written = client->client->write_P((char *)buf, len);
+#endif
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
     loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d client=%s:%u\n",
