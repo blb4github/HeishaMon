@@ -77,39 +77,103 @@ static WiFiServer sync_server(0);
 static uint8_t *rbuffer = NULL;
 
 /*
-  safe write is necessary for esp8266 so it doesn't block
-  on esp32 wifi is multithreaded, not necessary but also not implemented on availableforWrite so skip it there
+  ESP32: bounded nonblocking writes.
+
+  The Arduino ESP32 WiFiClient::write() retries up to ten one-second select()
+  waits when the peer stops reading. The synchronous webserver runs in the
+  HeishaMon main loop, so those waits also delay the heat-pump logic.
+
+  A single MSG_DONTWAIT send() is not sufficient: valid TCP sends may be
+  *partial* (for example, 1249 out of 1444 bytes). Retry the unsent suffix
+  within a short, absolute time budget. Only report success when the entire
+  fragment is accepted. If the budget expires, abort this HTTP response;
+  webserver_process_send() must not advance its sendlist on an incomplete
+  fragment. The bounded synchronous approach deliberately trades reliability
+  of a stalled web client for responsiveness of the control loop.
+
+  A later version could preserve remaining data across webserver_loop()
+  iterations, but that requires changes to the sendlist/chunked state machine.
 */
+#if defined(ESP32)
+#include "lwip/sockets.h"
+static const uint32_t WEB_WRITE_BUDGET_MS = 40;
+
+static int16_t web_write_bounded(struct webserver_t *client, const uint8_t *buf, uint16_t len) {
+  const uint32_t started = millis();
+  const int socket_fd = client->client->fd();
+  if (socket_fd < 0) {
+    client->step = WEBSERVER_CLIENT_CLOSE;
+    return -1;
+  }
+
+  uint16_t sent = 0;
+  uint16_t partial_count = 0;
+  int last_error = 0;
+
+  while (sent < len) {
+    const int n = lwip_send(socket_fd, buf + sent, len - sent, MSG_DONTWAIT);
+    if (n > 0) {
+      sent += (uint16_t)n;
+      if (sent < len) ++partial_count;
+      continue;
+    }
+    if (n == 0) {
+      last_error = 0;
+      break; // Peer did not accept any more data.
+    }
+
+    last_error = errno;
+    if (last_error != EAGAIN && last_error != EWOULDBLOCK && last_error != EINTR) {
+      break; // Real socket error.
+    }
+
+    if ((uint32_t)(millis() - started) >= WEB_WRITE_BUDGET_MS) break;
+    delay(1); // Yield to background tasks; never spin on a full TX buffer.
+  }
+
+  const uint32_t elapsed = millis() - started;
+  if (partial_count != 0 && sent == len) {
+    loggingSerial.printf("DIAG WEB partial recovered=%u bytes=%u elapsed=%lu ms\\n",
+      (unsigned int)partial_count, (unsigned int)len, (unsigned long)elapsed);
+  }
+  if (elapsed >= 100) {
+    loggingSerial.printf("DIAG WEB bounded write=%lu ms bytes=%u result=%u\\n",
+      (unsigned long)elapsed, (unsigned int)len, (unsigned int)sent);
+  }
+  if (sent != len) {
+    loggingSerial.printf("WEB bounded write failed: requested=%u written=%u elapsed=%lu ms errno=%d; closing client\\n",
+      (unsigned int)len, (unsigned int)sent, (unsigned long)elapsed, last_error);
+    client->step = WEBSERVER_CLIENT_CLOSE;
+    return -1;
+  }
+  return (int16_t)sent;
+}
+#endif
+
 static int16_t safe_write(struct webserver_t *client, const uint8_t *buf, uint16_t len) {
 #if defined(ESP8266)
   uint32_t start = millis();
   while(client->client->availableForWrite() == 0) {
     if((unsigned long)(millis() - start) > 1000) {
-      // client is too slow, give up
       client->step = WEBSERVER_CLIENT_CLOSE;
       return -1;
     }
     yield();
   }
 #endif
+#if defined(ESP32)
+  return web_write_bounded(client, buf, len);
+#else
   const uint32_t started = millis();
   const int16_t written = client->client->write(buf, len);
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d client=%s:%u\n",
-      (unsigned long)elapsed, (unsigned int)len, (int)written,
-      client->client->remoteIP().toString().c_str(),
-      (unsigned int)client->client->remotePort());
+    loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d\\n",
+      (unsigned long)elapsed, (unsigned int)len, (int)written);
   }
-  // A timeout (0), error, or short write makes this HTTP response incomplete.
-  // Do not continue with the sendlist: each subsequent ESP32 write can block
-  // for another ~10 seconds while core services are starved.
-  if (written != len) {
-    loggingSerial.printf("WEB write failed: requested=%u written=%d; closing client\n",
-      (unsigned int)len, (int)written);
-    client->step = WEBSERVER_CLIENT_CLOSE;
-  }
+  if (written != len) client->step = WEBSERVER_CLIENT_CLOSE;
   return written;
+#endif
 }
 
 static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len) {
@@ -117,31 +181,25 @@ static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len)
   uint32_t start = millis();
   while(client->client->availableForWrite() == 0) {
     if((unsigned long)(millis() - start) > 1000) {
-      // client is too slow, give up
       client->step = WEBSERVER_CLIENT_CLOSE;
       return -1;
     }
     yield();
   }
 #endif
+#if defined(ESP32)
+  return web_write_bounded(client, (const uint8_t *)buf, len);
+#else
   const uint32_t started = millis();
   const int16_t written = client->client->write_P((char *)buf, len);
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d client=%s:%u\n",
-      (unsigned long)elapsed, (unsigned int)len, (int)written,
-      client->client->remoteIP().toString().c_str(),
-      (unsigned int)client->client->remotePort());
+    loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d\\n",
+      (unsigned long)elapsed, (unsigned int)len, (int)written);
   }
-  // A timeout (0), error, or short write makes this HTTP response incomplete.
-  // Do not continue with the sendlist: each subsequent ESP32 write can block
-  // for another ~10 seconds while core services are starved.
-  if (written != len) {
-    loggingSerial.printf("WEB write failed: requested=%u written=%d; closing client\n",
-      (unsigned int)len, (int)written);
-    client->step = WEBSERVER_CLIENT_CLOSE;
-  }
+  if (written != len) client->step = WEBSERVER_CLIENT_CLOSE;
   return written;
+#endif
 }
 
 #if defined(ESP8266) || defined(ESP32)
