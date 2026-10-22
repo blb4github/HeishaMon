@@ -111,6 +111,7 @@ static int16_t web_write_bounded(struct webserver_t *client, const uint8_t *buf,
   int last_error = 0;
 
   while (sent < len) {
+    if (sent != 0 && (uint32_t)(millis() - started) >= WEB_WRITE_BUDGET_MS) break;
     const int n = lwip_send(socket_fd, buf + sent, len - sent, MSG_DONTWAIT);
     if (n > 0) {
       sent += (uint16_t)n;
@@ -133,15 +134,15 @@ static int16_t web_write_bounded(struct webserver_t *client, const uint8_t *buf,
 
   const uint32_t elapsed = millis() - started;
   if (partial_count != 0 && sent == len) {
-    loggingSerial.printf("DIAG WEB partial recovered=%u bytes=%u elapsed=%lu ms\\n",
+    loggingSerial.printf("DIAG WEB partial recovered=%u bytes=%u elapsed=%lu ms\n",
       (unsigned int)partial_count, (unsigned int)len, (unsigned long)elapsed);
   }
   if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB bounded write=%lu ms bytes=%u result=%u\\n",
+    loggingSerial.printf("DIAG WEB bounded write=%lu ms bytes=%u result=%u\n",
       (unsigned long)elapsed, (unsigned int)len, (unsigned int)sent);
   }
   if (sent != len) {
-    loggingSerial.printf("WEB bounded write failed: requested=%u written=%u elapsed=%lu ms errno=%d; closing client\\n",
+    loggingSerial.printf("WEB bounded write failed: requested=%u written=%u elapsed=%lu ms errno=%d; closing client\n",
       (unsigned int)len, (unsigned int)sent, (unsigned long)elapsed, last_error);
     client->step = WEBSERVER_CLIENT_CLOSE;
     return -1;
