@@ -77,77 +77,95 @@ static WiFiServer sync_server(0);
 static uint8_t *rbuffer = NULL;
 
 /*
-  ESP32: bounded nonblocking writes.
+  ESP32 synchronous HTTP TX staging.
 
-  The Arduino ESP32 WiFiClient::write() retries up to ten one-second select()
-  waits when the peer stops reading. The synchronous webserver runs in the
-  HeishaMon main loop, so those waits also delay the heat-pump logic.
+  A non-blocking socket is permitted to accept only some of a response.
+  Instead of dropping the response after a 40 ms retry deadline, enqueue
+  the complete ordered HTTP fragment and resume flushing in subsequent
+  webserver_loop() iterations. HTTP sendlist/chunk formatting remains in
+  webserver_process_send(), while staged bytes remain valid after the
+  originating sendlist node is freed.
 
-  A single MSG_DONTWAIT send() is not sufficient: valid TCP sends may be
-  *partial* (for example, 1249 out of 1444 bytes). Retry the unsent suffix
-  within a short, absolute time budget. Only report success when the entire
-  fragment is accepted. If the budget expires, abort this HTTP response;
-  webserver_process_send() must not advance its sendlist on an incomplete
-  fragment. The bounded synchronous approach deliberately trades reliability
-  of a stalled web client for responsiveness of the control loop.
-
-  A later version could preserve remaining data across webserver_loop()
-  iterations, but that requires changes to the sendlist/chunked state machine.
+  Each client is limited to one modest staging buffer. The main loop does
+  not wait for network backpressure. The next sendlist batch is generated
+  only once the staged bytes have been accepted by lwIP. Closing the
+  HTTP client is similarly deferred until the staging buffer drains.
 */
 #if defined(ESP32)
 #include "lwip/sockets.h"
-static const uint32_t WEB_WRITE_BUDGET_MS = 40;
+static const uint16_t WEB_TX_CAPACITY = 4096;
+static const uint16_t WEB_TX_FLUSH_LIMIT = 1500;
+static const uint32_t WEB_TX_STALL_TIMEOUT_MS = 5000;
 
-static int16_t web_write_bounded(struct webserver_t *client, const uint8_t *buf, uint16_t len) {
-  const uint32_t started = millis();
-  const int socket_fd = client->client->fd();
-  if (socket_fd < 0) {
+static int16_t web_tx_enqueue(struct webserver_t *client, const uint8_t *buf, uint16_t len) {
+  if (len == 0) return 0;
+  if (client->tx_data == NULL) {
+    client->tx_data = (uint8_t *)malloc(WEB_TX_CAPACITY);
+    if (client->tx_data == NULL) {
+      loggingSerial.println("WEB TX queue allocation failed; closing client");
+      client->step = WEBSERVER_CLIENT_CLOSE;
+      return -1;
+    }
+    client->tx_used = 0;
+    client->tx_sent = 0;
+  }
+
+  // Every call from webserver_process_send() appends in HTTP wire order.
+  // The caller may release its source buffer immediately after this call.
+  if ((uint32_t)client->tx_used + len > WEB_TX_CAPACITY) {
+    loggingSerial.printf("WEB TX queue overflow queued=%u new=%u; closing client\n",
+      (unsigned int)client->tx_used, (unsigned int)len);
     client->step = WEBSERVER_CLIENT_CLOSE;
     return -1;
   }
-
-  uint16_t sent = 0;
-  uint16_t partial_count = 0;
-  int last_error = 0;
-
-  while (sent < len) {
-    if (sent != 0 && (uint32_t)(millis() - started) >= WEB_WRITE_BUDGET_MS) break;
-    const int n = lwip_send(socket_fd, buf + sent, len - sent, MSG_DONTWAIT);
-    if (n > 0) {
-      sent += (uint16_t)n;
-      if (sent < len) ++partial_count;
-      continue;
-    }
-    if (n == 0) {
-      last_error = 0;
-      break; // Peer did not accept any more data.
-    }
-
-    last_error = errno;
-    if (last_error != EAGAIN && last_error != EWOULDBLOCK && last_error != EINTR) {
-      break; // Real socket error.
-    }
-
-    if ((uint32_t)(millis() - started) >= WEB_WRITE_BUDGET_MS) break;
-    delay(1); // Yield to background tasks; never spin on a full TX buffer.
+  if (client->tx_used == client->tx_sent) {
+    client->tx_used = client->tx_sent = 0;
+    client->tx_last_progress = millis();
   }
+  memcpy(client->tx_data + client->tx_used, buf, len);
+  client->tx_used += len;
+  return (int16_t)len;
+}
 
-  const uint32_t elapsed = millis() - started;
-  if (partial_count != 0 && sent == len) {
-    loggingSerial.printf("DIAG WEB partial recovered=%u bytes=%u elapsed=%lu ms\n",
-      (unsigned int)partial_count, (unsigned int)len, (unsigned long)elapsed);
-  }
-  if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB bounded write=%lu ms bytes=%u result=%u\n",
-      (unsigned long)elapsed, (unsigned int)len, (unsigned int)sent);
-  }
-  if (sent != len) {
-    loggingSerial.printf("WEB bounded write failed: requested=%u written=%u elapsed=%lu ms errno=%d; closing client\n",
-      (unsigned int)len, (unsigned int)sent, (unsigned long)elapsed, last_error);
+static bool web_tx_flush(struct webserver_t *client) {
+  if (client->tx_used == client->tx_sent) return true;
+  const int fd = client->client->fd();
+  if (fd < 0) {
     client->step = WEBSERVER_CLIENT_CLOSE;
-    return -1;
+    client->tx_used = client->tx_sent = 0;
+    return true;
   }
-  return (int16_t)sent;
+  const uint16_t left = client->tx_used - client->tx_sent;
+  const uint16_t attempt = left < WEB_TX_FLUSH_LIMIT ? left : WEB_TX_FLUSH_LIMIT;
+  const int n = lwip_send(fd, client->tx_data + client->tx_sent, attempt, MSG_DONTWAIT);
+  if (n > 0) {
+    client->tx_sent += (uint16_t)n;
+    client->tx_last_progress = millis();
+    if (client->is_websocket == 0) client->lastseen = millis();
+    if ((uint16_t)n < attempt) {
+      loggingSerial.printf("DIAG WEB TX partial accepted=%d requested=%u remaining=%u\n",
+        n, (unsigned int)attempt, (unsigned int)(client->tx_used-client->tx_sent));
+    }
+  } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+    loggingSerial.printf("WEB TX socket error errno=%d; closing client\n", errno);
+    client->step = WEBSERVER_CLIENT_CLOSE;
+    client->tx_used = client->tx_sent = 0;
+    return true;
+  }
+
+  if (client->tx_sent == client->tx_used) {
+    client->tx_sent = client->tx_used = 0;
+    return true;
+  }
+  if ((uint32_t)(millis() - client->tx_last_progress) > WEB_TX_STALL_TIMEOUT_MS) {
+    loggingSerial.printf("WEB TX stalled for %lu ms remaining=%u; closing client\n",
+      (unsigned long)(millis() - client->tx_last_progress),
+      (unsigned int)(client->tx_used-client->tx_sent));
+    client->step = WEBSERVER_CLIENT_CLOSE;
+    client->tx_used = client->tx_sent = 0;
+    return true;
+  }
+  return false;
 }
 #endif
 
@@ -163,13 +181,13 @@ static int16_t safe_write(struct webserver_t *client, const uint8_t *buf, uint16
   }
 #endif
 #if defined(ESP32)
-  return web_write_bounded(client, buf, len);
+  return web_tx_enqueue(client, buf, len);
 #else
   const uint32_t started = millis();
   const int16_t written = client->client->write(buf, len);
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d\\n",
+    loggingSerial.printf("DIAG WEB write=%lu ms bytes=%u result=%d\n",
       (unsigned long)elapsed, (unsigned int)len, (int)written);
   }
   if (written != len) client->step = WEBSERVER_CLIENT_CLOSE;
@@ -189,13 +207,13 @@ static int16_t safe_write_P(struct webserver_t *client, PGM_P buf, uint16_t len)
   }
 #endif
 #if defined(ESP32)
-  return web_write_bounded(client, (const uint8_t *)buf, len);
+  return web_tx_enqueue(client, (const uint8_t *)buf, len);
 #else
   const uint32_t started = millis();
   const int16_t written = client->client->write_P((char *)buf, len);
   const uint32_t elapsed = millis() - started;
   if (elapsed >= 100) {
-    loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d\\n",
+    loggingSerial.printf("DIAG WEB write_P=%lu ms bytes=%u result=%d\n",
       (unsigned long)elapsed, (unsigned int)len, (int)written);
   }
   if (written != len) client->step = WEBSERVER_CLIENT_CLOSE;
@@ -2400,6 +2418,15 @@ err_t webserver_poll(void *arg, struct tcp_pcb *pcb) {
 #endif
 
 void webserver_reset_client(struct webserver_t *client) {
+#if defined(ESP32)
+  if (client->tx_data != NULL) {
+    free(client->tx_data);
+    client->tx_data = NULL;
+  }
+  client->tx_used = 0;
+  client->tx_sent = 0;
+  client->tx_last_progress = 0;
+#endif
 #if defined(ESP8266) || defined(ESP32)
   if(client->pcb != NULL) {
     tcp_close(client->pcb);
@@ -2516,6 +2543,16 @@ void webserver_loop(void) {
       continue;
     }
 
+#if defined(ESP32)
+    // Drain pending HTTP bytes before generating another sendlist batch.
+    // Even a completed CLOSE response must be flushed before stop().
+    if (clients[i].data.tx_used != clients[i].data.tx_sent) {
+      const bool drained = web_tx_flush(&clients[i].data);
+      if (!drained || clients[i].data.step == WEBSERVER_CLIENT_CLOSE) continue;
+      // Limit the flush to one non-blocking socket operation per iteration.
+      continue;
+    }
+#endif
     if(clients[i].data.is_websocket == 1) {
       if((unsigned long)(millis() - clients[i].data.lastping) > WEBSERVER_CLIENT_PING_INTERVAL) {
         websocket_send_header(&clients[i].data, WEBSOCKET_OPCODE_PING, 0);
