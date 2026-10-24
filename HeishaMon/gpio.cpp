@@ -72,7 +72,13 @@ void mqttGPIOCallback(char* topic, char* value, gpioSettingsStruct &gpioSettings
 #endif
   // Handle user-configurable output GPIOs: topic "extra/N" (1-indexed)
   if (strncmp_P(topic, PSTR("extra/"), 6) == 0) {
-    int idx = atoi(topic + 6) - 1;  // convert 1-indexed to 0-indexed
+    // Require extra/<digits> only; atoi() alone accepts malformed topics.
+    const char* number = topic + 6;
+    if (*number == 0) return;
+    for (const char* p = number; *p; ++p) {
+      if (*p < '0' || *p > '9') return;
+    }
+    int idx = atoi(number) - 1;  // convert 1-indexed to 0-indexed
     if (idx >= 0 && idx < NUMGPIO_USER) {
       int pinIdx = NUMGPIO_RELAY + idx;
       // Only pins actually in OUTPUT mode are ever candidates for a real write. Pins left in
@@ -119,7 +125,7 @@ void publishGPIOStates(PubSubClient &mqtt_client, gpioSettingsStruct &gpioSettin
     if (publishAll || state != lastState[i]) {
       lastState[i] = state;
       if (i >= NUMGPIO_RELAY && mqttConnected) {
-        snprintf_P(topic, sizeof(topic), PSTR("%s/gpio/extra/%d"), mqtt_topic_base, i - NUMGPIO_RELAY + 1);
+        snprintf_P(topic, sizeof(topic), PSTR("%s/gpio_state/extra/%d"), mqtt_topic_base, i - NUMGPIO_RELAY + 1);
         mqtt_client.publish(topic, state ? "1" : "0", true);
       }
       int len = snprintf_P(wsmsg, sizeof(wsmsg), PSTR("{\"data\": {\"gpio\": {\"pin\": %d, \"state\": %d}}}"),
