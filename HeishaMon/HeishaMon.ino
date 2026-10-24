@@ -526,10 +526,8 @@ void mqtt_reconnect()
       if (mqttReconnects == 1) { //only resend all data on first connect to mqtt so a data bomb like and bad mqtt server will not cause a reconnect bomb everytime
         if (heishamonSettings.use_1wire) resetlastalldatatime_dallas(); //resend all 1wire values to mqtt
         resetlastalldatatime(); //resend all heatpump values to mqtt
-
+        publishGPIOStates(mqtt_client, heishamonSettings.gpioSettings, heishamonSettings.mqtt_topic_base, true, heishamonSettings.opentherm, heishamonSettings.listenonly); //publish all GPIO states on first connect
       }
-      // Republish retained GPIO state after every MQTT reconnect (the broker might have restarted).
-      publishGPIOStates(mqtt_client, heishamonSettings.gpioSettings, heishamonSettings.mqtt_topic_base, true, heishamonSettings.opentherm, heishamonSettings.listenonly);
       //use this to receive valid heishamon raw data from other heishamon to debug this OT code
 //#define RAWDEBUG
 #ifdef RAWDEBUG
