@@ -1115,12 +1115,14 @@ function renderGpioTable(d){
   if(!tb)return; // GPIO tab/pane isn't rendered at all in listen-only mode
   tb.innerHTML='';
   // first 2 pins are the fixed relays on boards that have them (ESP32); the rest are user-configurable GPIOs
-  var relayCount=d.gpio.length>5?2:0;
-  var extraIdx=0,relayIdx=0;
+  // Fixed ESP32 relays are identified by physical pin, not the number of visible GPIOs.
+  // OpenTherm may reserve pins and reduce the visible count.
+  var extraIdx=0;
   d.gpio.forEach(function(item,i){
     var row=document.createElement('tr');
     var nameCell=document.createElement('td');
-    nameCell.textContent=i<relayCount?('Relay '+(++relayIdx)):('GPIO '+(++extraIdx));
+    var relayName=item.pin===21?'Relay 1':(item.pin===47?'Relay 2':null);
+    nameCell.textContent=relayName||('GPIO '+(++extraIdx));
     row.appendChild(nameCell);
     var pinCell=document.createElement('td');pinCell.textContent=item.pin;row.appendChild(pinCell);
     var modeCell=document.createElement('td');modeCell.textContent=gpioModeNames[item.mode]||item.mode;row.appendChild(modeCell);
