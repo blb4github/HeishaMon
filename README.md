@@ -387,7 +387,7 @@ panasonic_heat_pump/gpio/extra/N
 where `N` is the 1-based index of the extra GPIO shown in the settings panel (e.g. `extra/1` for "GPIO 1"), not its physical pin number. Values sent to a pin that isn't configured as Output are ignored.
 
 **Reading GPIO states over MQTT:**
-Input and output states are published as retained telemetry to `panasonic_heat_pump/gpio_state/extra/N` whenever they change, and for all available extra GPIOs on every MQTT reconnect. Commands remain on `panasonic_heat_pump/gpio/extra/N`. Keeping telemetry separate from commands prevents state updates from being interpreted as new switching instructions. When upgrading from a version that retained states on `gpio/extra/N`, delete those old retained broker messages before enabling outputs; this firmware cannot distinguish a legacy retained command-topic message from a deliberate command. GPIO outputs are not restored from the retained state topics after boot.
+Both input and output pin states are automatically published (retained) to the same `panasonic_heat_pump/gpio/extra/N` topics whenever a state changes, and for all extra GPIOs on first MQTT connect.
 
 **HTTP API:**
 You can read all extra GPIO states as JSON via a GET request:
