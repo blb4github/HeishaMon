@@ -5,16 +5,6 @@ name: Rules engine tests
 # rules engine. No Arduino toolchain needed.
 
 on:
-  push:
-    branches-ignore:
-      - main
-    paths:
-      - 'Examples/Rules/**'
-      - 'HeishaMon/src/rules/**'
-      - 'HeishaMon/src/common/**'
-      - 'HeishaMon/decode.h'
-      - 'HeishaMon/commands.h'
-      - '.github/workflows/rules-tests.yml'
   pull_request:
     paths:
       - 'Examples/Rules/**'
@@ -24,6 +14,10 @@ on:
       - 'HeishaMon/commands.h'
       - '.github/workflows/rules-tests.yml'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

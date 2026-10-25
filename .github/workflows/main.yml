@@ -2,14 +2,14 @@ name: Build binary
 
 on:
   push:
-    branches-ignore:
-      - main        # never run on plain main pushes
     tags:
       - '**'        # but DO run on any tag (including tags on main)
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'  # nightly at 2am UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
