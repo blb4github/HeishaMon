@@ -1,4 +1,3 @@
-// Regression: forward OP_JMP must skip >127 bytecode instructions.
 on System#Boot then
   setTimer(1, 1);
 end
