@@ -4442,7 +4442,10 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
           break;
         }
       }
-      logprintf_P(F("ERROR: cannot compare %s with a left char value"), op);
+      logprintf_P(F("ERROR: cannot compare %s with a left char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d]"),
+                  op, obj->nr, (unsigned int)(pos / sizeof(struct vm_top_t)),
+                  (unsigned int)type, (unsigned int)x_type, (unsigned int)y_type,
+                  (int)b, (int)c);
       return -1;
     }
     if(y_type == VINTEGER) {
@@ -4493,7 +4496,10 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
           break;
         }
       }
-      logprintf_P(F("ERROR: cannot compare %s with a right char value"), op);
+      logprintf_P(F("ERROR: cannot compare %s with a right char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d]"),
+                  op, obj->nr, (unsigned int)(pos / sizeof(struct vm_top_t)),
+                  (unsigned int)type, (unsigned int)x_type, (unsigned int)y_type,
+                  (int)b, (int)c);
       return -1;
     }
 #ifdef DEBUG
