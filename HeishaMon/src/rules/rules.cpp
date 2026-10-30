@@ -4295,6 +4295,11 @@ static int16_t rule_create(char **text, struct rules_t *obj) {
 int8_t rule_run(struct rules_t *obj, uint8_t validate) {
   uint16_t pos = 0;
   uint8_t t = 0;
+  // Lightweight per-execution jump trace: only printed if an error occurs.
+  uint16_t diag_jump_from = 0;
+  int16_t diag_jump_step = 0;
+  int32_t diag_jump_target = 0;
+  uint8_t diag_jump_seen = 0;
 
   /*
    * This approach is much faster than a switch
@@ -4349,6 +4354,14 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
 /*****************/
   BEGIN:
+    // Never decode an instruction outside this rule's compiled bytecode.
+    if((uint32_t)pos + sizeof(struct vm_top_t) > getval(obj->bc.nrbytes)) {
+      logprintf_P(F("ERROR: rules bytecode out of bounds [rule=%d pos=%u bc_size=%u last_jump=%u jump_from=%u jump_step=%d jump_target=%ld]"),
+                  obj->nr, (unsigned int)pos, (unsigned int)getval(obj->bc.nrbytes),
+                  (unsigned int)diag_jump_seen, (unsigned int)diag_jump_from,
+                  (int)diag_jump_step, (long)diag_jump_target);
+      return -1;
+    }
     uint8_t type = gettype(obj->bc.buffer[pos]);
 #ifdef DEBUG
     printf("rule #%d, pos: %lu, op_id: %d, op: %s\n", obj->nr, pos/sizeof(struct vm_top_t), type, op_names[type].name);
@@ -4442,10 +4455,13 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
           break;
         }
       }
-      logprintf_P(F("ERROR: cannot compare %s with a left char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d]"),
+      logprintf_P(F("ERROR: cannot compare %s with a left char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d pos=%u bc_size=%u heap_size=%u last_jump=%u jump_from=%u jump_step=%d jump_target=%ld]"),
                   op, obj->nr, (unsigned int)(pos / sizeof(struct vm_top_t)),
                   (unsigned int)type, (unsigned int)x_type, (unsigned int)y_type,
-                  (int)b, (int)c);
+                  (int)b, (int)c, (unsigned int)pos,
+                  (unsigned int)getval(obj->bc.nrbytes), (unsigned int)getval(obj->heap->nrbytes),
+                  (unsigned int)diag_jump_seen, (unsigned int)diag_jump_from,
+                  (int)diag_jump_step, (long)diag_jump_target);
       return -1;
     }
     if(y_type == VINTEGER) {
@@ -4496,10 +4512,13 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
           break;
         }
       }
-      logprintf_P(F("ERROR: cannot compare %s with a right char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d]"),
+      logprintf_P(F("ERROR: cannot compare %s with a right char value [rule=%d bc=%u opcode=%u left_type=%u right_type=%u left_heap=%d right_heap=%d pos=%u bc_size=%u heap_size=%u last_jump=%u jump_from=%u jump_step=%d jump_target=%ld]"),
                   op, obj->nr, (unsigned int)(pos / sizeof(struct vm_top_t)),
                   (unsigned int)type, (unsigned int)x_type, (unsigned int)y_type,
-                  (int)b, (int)c);
+                  (int)b, (int)c, (unsigned int)pos,
+                  (unsigned int)getval(obj->bc.nrbytes), (unsigned int)getval(obj->heap->nrbytes),
+                  (unsigned int)diag_jump_seen, (unsigned int)diag_jump_from,
+                  (int)diag_jump_step, (long)diag_jump_target);
       return -1;
     }
 #ifdef DEBUG
@@ -4678,11 +4697,13 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     /* LCOV_EXCL_STOP*/
 #endif
 
-    if(t == 1 || validate == 1) {
-      pos += sizeof(struct vm_top_t);
-    } else {
-      pos += (sizeof(struct vm_top_t)*(int8_t)getval(node->a));
-    }
+    diag_jump_seen = 1;
+    diag_jump_from = pos;
+    diag_jump_step = (t == 1 || validate == 1) ?
+                     (int16_t)sizeof(struct vm_top_t) :
+                     (int16_t)(sizeof(struct vm_top_t) * (int8_t)getval(node->a));
+    diag_jump_target = (int32_t)pos + diag_jump_step;
+    pos = (uint16_t)diag_jump_target;
 
     t = 0;
 
