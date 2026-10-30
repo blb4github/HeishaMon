@@ -1,0 +1,6 @@
+# An unassigned #enable is not 1: jump forward over >127 instructions.
+# Prior to the fix, uint8_t jump offset was interpreted as negative int8_t.
+boot
+adv 1
+expectcmd SetDHWTemp 22
+expectnone
