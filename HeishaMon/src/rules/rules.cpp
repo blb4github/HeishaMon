@@ -4701,7 +4701,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     diag_jump_from = pos;
     diag_jump_step = (t == 1 || validate == 1) ?
                      (int16_t)sizeof(struct vm_top_t) :
-                     (int16_t)(sizeof(struct vm_top_t) * (int8_t)getval(node->a));
+                     (int16_t)(sizeof(struct vm_top_t) * (uint8_t)getval(node->a));
     diag_jump_target = (int32_t)pos + diag_jump_step;
     pos = (uint16_t)diag_jump_target;
 
