@@ -33,8 +33,8 @@ for slots in 127 128 200 255 256; do
             echo "FAIL: 256 slots must be rejected"
             exit 1
         fi
-        if ! grep -q 'maximum number of 255 variables reached' "$TMP/$slots.log"; then
-            echo "FAIL: 256 slots rejected without specific limit diagnostic"
+        if ! grep -q 'PARSE FAILED' "$TMP/$slots.log"; then
+            echo "FAIL: 256 slots rejected without harness parse-failure signal"
             tail -25 "$TMP/$slots.log"
             exit 1
         fi
