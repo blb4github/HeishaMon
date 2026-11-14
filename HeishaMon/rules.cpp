@@ -143,6 +143,9 @@ static int8_t is_variable(char *text, uint16_t size) {
     }
 
     if(text[0] == '%') {
+      if(size == 5 && strnicmp(&text[1], "time", 4) == 0) {
+        return 5;
+      }
       if(size == 5 && strnicmp(&text[1], "hour", 4) == 0) {
         return 5;
       }
@@ -450,6 +453,28 @@ static int8_t vm_value_get(struct rules_t *obj) {
   } else if(key[0] == '%') {
     time_t now = time(NULL);
     struct tm *tm_struct = localtime(&now);
+    // The Rules VM uses signed 24-bit integers. Seconds since the start
+    // of the current local calendar quarter fit (at most ~92 days + 1 hour).
+    if(stricmp((char *)&key[1], "time") == 0) {
+      if(now < 1609459200 || tm_struct == NULL) {
+        rules_pushnil(); // Clock does not yet have a plausible date.
+      } else {
+        struct tm quarter_start = *tm_struct;
+        quarter_start.tm_mon = (quarter_start.tm_mon / 3) * 3;
+        quarter_start.tm_mday = 1;
+        quarter_start.tm_hour = 0;
+        quarter_start.tm_min = 0;
+        quarter_start.tm_sec = 0;
+        quarter_start.tm_isdst = -1; // Determine DST for quarter start.
+        time_t start = mktime(&quarter_start);
+        if(start == (time_t)-1 || now < start) {
+          rules_pushnil();
+        } else {
+          rules_pushinteger((int)(now - start));
+        }
+      }
+      return 0;
+    }
     if(stricmp((char *)&key[1], "hour") == 0) {
       rules_pushinteger((int)tm_struct->tm_hour);
       return 0;
