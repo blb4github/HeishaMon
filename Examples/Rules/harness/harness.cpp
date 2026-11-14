@@ -195,7 +195,7 @@ static int8_t is_variable_cb(char *text, uint16_t size) {
       fprintf(stderr, "!!! unknown @name: %.*s\n", size, text);
       return -1;
     }
-    if(text[0] == '?') return -1; /* OpenTherm not simulated */
+    if(text[0] == '?') return i; /* OpenTherm names accepted syntactically; metadata is not linked in host harness. */
     return i;
   }
   return -1;
