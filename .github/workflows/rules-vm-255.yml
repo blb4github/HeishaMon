@@ -1,0 +1,21 @@
+name: Rules VM 255-slot prototype checks
+
+on:
+  push:
+    branches:
+      - feature/rules-255-variable-slots
+  pull_request:
+    paths:
+      - 'HeishaMon/src/rules/**'
+      - 'Examples/Rules/**'
+      - '.github/workflows/rules-vm-255.yml'
+
+jobs:
+  rules-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run existing Rules regression suite
+        run: bash Examples/Rules/run_tests.sh
+      - name: Check slot limit boundaries
+        run: bash Examples/Rules/Variable-Slot-Limits/test_variable_slots.sh
