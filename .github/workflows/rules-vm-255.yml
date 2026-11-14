@@ -19,3 +19,11 @@ jobs:
         run: bash Examples/Rules/run_tests.sh
       - name: Check slot limit boundaries
         run: bash Examples/Rules/Variable-Slot-Limits/test_variable_slots.sh
+      - name: Fetch current 2611.06 reference Rules
+        uses: actions/checkout@v4
+        with:
+          repository: blb4github/HeishaMon-Rules-with-Opentherm-Thermostat
+          ref: main
+          path: rules-reference
+      - name: Parse real-world HeishaMon Rules 2611.06
+        run: ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse
