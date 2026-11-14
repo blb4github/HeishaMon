@@ -26,4 +26,4 @@ jobs:
           ref: main
           path: rules-reference
       - name: Parse real-world HeishaMon Rules 2611.06
-        run: ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse
+        run: HARNESS_VERBOSE=1 ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse
