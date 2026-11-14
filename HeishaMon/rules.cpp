@@ -143,6 +143,9 @@ static int8_t is_variable(char *text, uint16_t size) {
     }
 
     if(text[0] == '%') {
+      if(size == 5 && strnicmp(&text[1], "time", 4) == 0) {
+        return 5;
+      }
       if(size == 5 && strnicmp(&text[1], "hour", 4) == 0) {
         return 5;
       }
