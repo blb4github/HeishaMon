@@ -450,6 +450,18 @@ static int8_t vm_value_get(struct rules_t *obj) {
   } else if(key[0] == '%') {
     time_t now = time(NULL);
     struct tm *tm_struct = localtime(&now);
+    // The Rules VM stores signed integers in 24 bits. A Unix timestamp does
+    // not fit; expose local seconds since midnight (0..86399) instead.
+    if(stricmp((char *)&key[1], "time") == 0) {
+      if(now < 1609459200 || tm_struct == NULL) {
+        rules_pushnil(); // Clock has not been synchronized yet.
+      } else {
+        rules_pushinteger((int)tm_struct->tm_hour * 3600 +
+                          (int)tm_struct->tm_min * 60 +
+                          (int)tm_struct->tm_sec);
+      }
+      return 0;
+    }
     if(stricmp((char *)&key[1], "hour") == 0) {
       rules_pushinteger((int)tm_struct->tm_hour);
       return 0;
