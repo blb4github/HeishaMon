@@ -25,6 +25,8 @@ for slots in 127 128 200 255 256; do
         "$HARNESS" "$TMP/$slots.rules" "$TMP/$slots.scenario" > "$TMP/$slots.log" 2>&1 || {
             echo "FAIL: $slots slots must compile and execute"
             tail -25 "$TMP/$slots.log"
+            echo "=== Verbose parser/VM diagnostic ==="
+            HARNESS_VERBOSE=1 "$HARNESS" "$TMP/$slots.rules" "$TMP/$slots.scenario" 2>&1 | tail -65 || true
             exit 1
         }
         echo "PASS: $slots slots compile and execute"
