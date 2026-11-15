@@ -16,7 +16,9 @@ for slots in 127 128 200 255 256; do
         for ((i=0;i<vars;i++)); do
             printf '    #slot%03d = %d;\n' "$i" "$((i % 99))"
         done
-        printf '    if #slot%03d == %d then\n' "$((vars-1))" "$(((vars-1) % 99))"
+        # Exercise a high-index variable as both the RHS and LHS of assignment.
+        printf '    #slot%03d = #slot%03d;\n' "$((vars-1))" "$((vars-2))"
+        printf '    if #slot%03d == %d then\n' "$((vars-1))" "$(((vars-2) % 99))"
         printf '        @SetQuietMode = 2;\n'
         printf '    end\nend\n'
     } > "$TMP/$slots.rules"
