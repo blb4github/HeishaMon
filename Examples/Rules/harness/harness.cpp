@@ -254,6 +254,8 @@ static void push_topic_str(const char *str) {
 static int8_t vm_value_get(struct rules_t *obj) {
   if(rules_gettop() < 1 || rules_type(-1) != VCHAR) return -1;
   const char *key = rules_tostring(-1);
+  if(verbose && strncmp(key, "#slot", 5) == 0 && atoi(key+5) >= 125)
+    fprintf(stderr, "[vm-get] %s\n", key);
 
   if(key[0] == '%') {
     int sod = wall_seconds_of_day();
@@ -296,6 +298,8 @@ static int8_t vm_value_set(struct rules_t *obj) {
      (type != VINTEGER && type != VFLOAT && type != VNULL && type != VCHAR)) return -1;
 
   const char *key = rules_tostring(-2);
+  if(verbose && strncmp(key, "#slot", 5) == 0 && atoi(key+5) >= 125)
+    fprintf(stderr, "[vm-set] %s\n", key);
 
   if(key[0] == '@') {
     char payload[128] = { 0 };
