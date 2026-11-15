@@ -52,6 +52,10 @@
 
 /* ---------- host stubs required by the engine ---------- */
 
+// Host pointers/structures can be larger than device layouts.
+// This 48 KiB capacity is test-only and does NOT change firmware limits.
+// Keep below UINT16_MAX for pbuf.tot_len.
+static constexpr unsigned int HOST_TEST_MEMPOOL_SIZE = 48 * 1024;
 static int verbose = 0;
 
 static void serial_printf(const char *fmt, ...) {
@@ -254,8 +258,6 @@ static void push_topic_str(const char *str) {
 static int8_t vm_value_get(struct rules_t *obj) {
   if(rules_gettop() < 1 || rules_type(-1) != VCHAR) return -1;
   const char *key = rules_tostring(-1);
-  if(verbose && strncmp(key, "#slot", 5) == 0 && atoi(key+5) >= 125)
-    fprintf(stderr, "[vm-get] %s\n", key);
 
   if(key[0] == '%') {
     int sod = wall_seconds_of_day();
@@ -281,8 +283,6 @@ static int8_t vm_value_get(struct rules_t *obj) {
   if(table == NULL) { rules_pushnil(); return 0; }
 
   auto it = table->find(key);
-  if(verbose && strcmp(key, "#slot197") == 0)
-    fprintf(stderr, "[vm-get-state] found=%d type=%d val=%d\n", it != table->end(), it == table->end() ? -1 : it->second.type, it == table->end() ? -1 : it->second.i);
   if(it == table->end()) { rules_pushnil(); return 0; }
   switch(it->second.type) {
     case VINTEGER: rules_pushinteger(it->second.i); break;
@@ -300,8 +300,6 @@ static int8_t vm_value_set(struct rules_t *obj) {
      (type != VINTEGER && type != VFLOAT && type != VNULL && type != VCHAR)) return -1;
 
   const char *key = rules_tostring(-2);
-  if(verbose && strncmp(key, "#slot", 5) == 0 && atoi(key+5) >= 125)
-    fprintf(stderr, "[vm-set] %s\n", key);
 
   if(key[0] == '@') {
     char payload[128] = { 0 };
@@ -330,8 +328,6 @@ static int8_t vm_value_set(struct rules_t *obj) {
     case VFLOAT:   v.f = rules_tofloat(-1); break;
     case VCHAR:    v.s = rules_tostring(-1); break;
   }
-  if(verbose && strcmp(key, "#slot197") == 0)
-    fprintf(stderr, "[vm-set-state] type=%d val=%d\n", v.type, v.i);
   (*table)[key] = v;
   return 0;
 }
@@ -345,8 +341,8 @@ static int parse_rules(const char *path) {
   long len = ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  memset(mempool, 0, MEMPOOL_SIZE);
-  unsigned int txtoffset = alignedbuffer(MEMPOOL_SIZE - len - 5);
+  memset(mempool, 0, HOST_TEST_MEMPOOL_SIZE);
+  unsigned int txtoffset = alignedbuffer(HOST_TEST_MEMPOOL_SIZE - len - 5);
   if(fread(&mempool[txtoffset], 1, len, f) != (size_t)len) { fclose(f); return -1; }
   fclose(f);
 
@@ -354,7 +350,7 @@ static int parse_rules(const char *path) {
   struct pbuf input; memset(&input, 0, sizeof(input));
   mem.payload = mempool;
   mem.len = 0;
-  mem.tot_len = MEMPOOL_SIZE;
+  mem.tot_len = HOST_TEST_MEMPOOL_SIZE;
   input.payload = &mempool[txtoffset];
   input.len = txtoffset;
   input.tot_len = len;
@@ -463,8 +459,8 @@ int main(int argc, char **argv) {
   }
   verbose = getenv("HARNESS_VERBOSE") != NULL;
 
-  mempool = (unsigned char *)malloc(MEMPOOL_SIZE);
-  MMU_SEC_HEAP = malloc(MEMPOOL_SIZE);
+  mempool = (unsigned char *)malloc(HOST_TEST_MEMPOOL_SIZE);
+  MMU_SEC_HEAP = malloc(HOST_TEST_MEMPOOL_SIZE);
 
   memset(&rule_options, 0, sizeof(struct rule_options_t));
   rule_options.is_variable_cb = is_variable_cb;
