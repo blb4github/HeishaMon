@@ -1680,6 +1680,9 @@ static uint16_t bc_parent(struct rules_t *obj, uint8_t type, int16_t a, int16_t 
 
   assert(size <= getval(obj->bc.bufsize));
   struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[ret];
+  // Mark a high named-variable source index in SETVAL. Literal/heap operands
+  // must already be encoded as negative references by vm_val_posr().
+  if(type == OP_SETVAL && b >= 128 && c == 0) c = 2;
   setval(node->type, type);
   setval(node->a, a);
   setval(node->b, b);
@@ -4849,7 +4852,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     // }
 #endif
 
-    if((int8_t)getval(node->b) < 0) {
+    if((int8_t)getval(node->b) < 0 && getval(node->c) != 2) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
       int16_t b = vm_val_pos((int8_t)getval(node->b));
 
@@ -4893,7 +4896,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
       memset(stack->buffer, 0, getval(stack->bufsize));
       setval(stack->nrbytes, 4);
-    } else if((int8_t)getval(node->b) > 0) {
+    } else if((int8_t)getval(node->b) > 0 || getval(node->c) == 2) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
       uint16_t b = ((uint8_t)getval(node->b)-1)*sizeof(struct vm_vchar_t);
 
