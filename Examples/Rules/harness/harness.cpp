@@ -281,6 +281,8 @@ static int8_t vm_value_get(struct rules_t *obj) {
   if(table == NULL) { rules_pushnil(); return 0; }
 
   auto it = table->find(key);
+  if(verbose && strcmp(key, "#slot197") == 0)
+    fprintf(stderr, "[vm-get-state] found=%d type=%d val=%d\n", it != table->end(), it == table->end() ? -1 : it->second.type, it == table->end() ? -1 : it->second.i);
   if(it == table->end()) { rules_pushnil(); return 0; }
   switch(it->second.type) {
     case VINTEGER: rules_pushinteger(it->second.i); break;
@@ -328,6 +330,8 @@ static int8_t vm_value_set(struct rules_t *obj) {
     case VFLOAT:   v.f = rules_tofloat(-1); break;
     case VCHAR:    v.s = rules_tostring(-1); break;
   }
+  if(verbose && strcmp(key, "#slot197") == 0)
+    fprintf(stderr, "[vm-set-state] type=%d val=%d\n", v.type, v.i);
   (*table)[key] = v;
   return 0;
 }
