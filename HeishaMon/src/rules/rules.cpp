@@ -2305,7 +2305,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if(getval(x->a) >= 0) {
+      if((int16_t)getval(x->a) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1 && tmp1B >= limit) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
@@ -2373,7 +2373,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if(getval(x->a) >= 0) {
+      if((int16_t)getval(x->a) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1 && tmp1B >= limit) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
@@ -2441,7 +2441,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
     if(is_op_and_math(gettype(x->type))) {
       tmp1 = nrbytes;
       tmp1C = -1;
-      if(getval(x->c) >= 0) {
+      if((int16_t)getval(x->c) >= 0) {
         tmp1C = tmp1;
         while((tmp1C = bc_before(tmp1C)) != -1) {
           struct vm_top_t *xC = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
@@ -2520,7 +2520,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if(getval(x->b) >= 0) {
+      if((int16_t)getval(x->b) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
