@@ -1680,9 +1680,6 @@ static uint16_t bc_parent(struct rules_t *obj, uint8_t type, int16_t a, int16_t 
 
   assert(size <= getval(obj->bc.bufsize));
   struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[ret];
-  // SETVAL c=2 distinguishes high unsigned varstack references
-  // from negative heap indices without changing the 4-byte instruction ABI.
-  if(type == OP_SETVAL && b >= 128 && c == 0) c = 2;
   setval(node->type, type);
   setval(node->a, a);
   setval(node->b, b);
@@ -4852,7 +4849,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     // }
 #endif
 
-    if((int8_t)getval(node->b) < 0 && getval(node->c) != 2) {
+    if((int8_t)getval(node->b) < 0) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
       int16_t b = vm_val_pos((int8_t)getval(node->b));
 
@@ -4896,7 +4893,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
       memset(stack->buffer, 0, getval(stack->bufsize));
       setval(stack->nrbytes, 4);
-    } else if((int8_t)getval(node->b) > 0 || getval(node->c) == 2) {
+    } else if((int8_t)getval(node->b) > 0) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
       uint16_t b = ((uint8_t)getval(node->b)-1)*sizeof(struct vm_vchar_t);
 
