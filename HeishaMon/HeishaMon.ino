@@ -1724,7 +1724,7 @@ int8_t webserver_cb(struct webserver_t *client, void *dat) {
 }
 
 void setupHttp() {
-  webserver_start(80, &webserver_cb, 0);
+  webserver_start(80, &webserver_cb, 1); // Experimental: CurlyMoo/webserver#17 async
 }
 
 void factoryReset() {
