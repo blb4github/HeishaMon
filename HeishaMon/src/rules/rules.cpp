@@ -1473,7 +1473,7 @@ static int16_t vm_val_pos(int8_t pos) {
   }
 }
 
-static int32_t vm_val_posr(int8_t pos) {
+static int32_t vm_val_posr(int16_t pos) {
   return ((pos-4)/rule_max_var_bytes()*-1)-1;
 }
 
@@ -4837,9 +4837,6 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_SETVAL: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-    if((uint8_t)getval(node->a) >= 195) {
-      logprintf_P(F("DEBUG SETVAL operand a=%d b=%d c=%d"), (uint8_t)getval(node->a), (int8_t)getval(node->b), (int8_t)getval(node->c));
-    }
 
 #if defined(DEBUG) || defined(COVERALLS)
     if((uint8_t)getval(node->a)*sizeof(struct vm_vchar_t) >= varstack->nrbytes) {
