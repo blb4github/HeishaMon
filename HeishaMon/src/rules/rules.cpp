@@ -65,10 +65,14 @@
 
 typedef struct vm_top_t {
   uint8_t type;
-  int8_t a;
-  int8_t b;
-  int8_t c;
+  int16_t a;
+  int16_t b;
+  int16_t c;
 } __attribute__((aligned(4))) vm_top_t;
+
+// 16-bit signed operands preserve negative heap references and support 255
+// named-variable slots without reinterpreting indices 128..255 as negative.
+static_assert(sizeof(vm_top_t) == 8, "Rules bytecode instruction must occupy 8 bytes");
 
 typedef struct vm_vchar_t {
   uint8_t type;
@@ -1463,7 +1467,7 @@ static uint16_t vm_stack_del(uint16_t idx) {
   return ret;
 }
 
-static int16_t vm_val_pos(int8_t pos) {
+static int16_t vm_val_pos(int16_t pos) {
   if(pos < 0) {
     return (((pos*-1)-1)*rule_max_var_bytes())+4;
   } else if(pos == 0) {
@@ -1680,9 +1684,6 @@ static uint16_t bc_parent(struct rules_t *obj, uint8_t type, int16_t a, int16_t 
 
   assert(size <= getval(obj->bc.bufsize));
   struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[ret];
-  // Mark a high named-variable source index in SETVAL. Literal/heap operands
-  // must already be encoded as negative references by vm_val_posr().
-  if(type == OP_SETVAL && b >= 128 && c == 0) c = 2;
   setval(node->type, type);
   setval(node->a, a);
   setval(node->b, b);
@@ -2103,7 +2104,7 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[a];
 
-      int8_t d = (int8_t)getval(x->a);
+      int16_t d = (int16_t)getval(x->a);
       if(!is_op_and_math(gettype(obj->bc.buffer[a])) &&
          gettype(obj->bc.buffer[a]) != OP_GETVAL &&
          gettype(obj->bc.buffer[a]) != OP_CLEAR &&
@@ -2125,10 +2126,10 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       if(z != NULL && gettype(x->type) == OP_CALL &&
          gettype(z->type) == OP_PUSH &&
-         (int8_t)getval(z->a) >= min) {
+         (int16_t)getval(z->a) >= min) {
       } else if(gettype(x->type) != OP_GETVAL &&
-         (((int8_t)getval(x->b) >= vars || (int8_t)getval(x->c) >= vars))) {
-        vars = MAX((int8_t)getval(x->c), (int8_t)getval(x->b));
+         (((int16_t)getval(x->b) >= vars || (int16_t)getval(x->c) >= vars))) {
+        vars = MAX((int16_t)getval(x->c), (int16_t)getval(x->b));
       } else {
         vars--;
       }
@@ -2152,7 +2153,7 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[c]) != OP_CLEAR &&
            gettype(obj->bc.buffer[c]) != OP_SETVAL &&
            !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
-          if((int8_t)getval(z->a) == d) {
+          if((int16_t)getval(z->a) == d) {
             setval(z->a, vars);
           }
         }
@@ -2160,12 +2161,12 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[c]) != OP_CALL &&
            gettype(obj->bc.buffer[c]) != OP_CLEAR &&
            gettype(obj->bc.buffer[c]) != OP_PUSH) {
-          if((int8_t)getval(z->b) == d) {
+          if((int16_t)getval(z->b) == d) {
             setval(z->b, vars);
           }
-          if((int8_t)getval(z->c) == d) {
-            if((int8_t)getval(z->b) == vars) {
-              if((int8_t)getval(z->a) == vars) {
+          if((int16_t)getval(z->c) == d) {
+            if((int16_t)getval(z->b) == vars) {
+              if((int16_t)getval(z->a) == vars) {
                 if(gettype(obj->bc.buffer[c]) != OP_CLEAR &&
                    gettype(obj->bc.buffer[c]) != OP_SETVAL &&
                    !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
@@ -2198,7 +2199,7 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[a];
 
-      int8_t d = (int8_t)getval(x->a);
+      int16_t d = (int16_t)getval(x->a);
 
       tmp = bc_next(obj, a);
 
@@ -2221,8 +2222,8 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[tmp]) != OP_CLEAR) {
           offset++;
         } else if(gettype(obj->bc.buffer[a]) != OP_PUSH) {
-          int16_t b = vm_val_pos((int8_t)getval(x->b));
-          int16_t c = vm_val_pos((int8_t)getval(x->c));
+          int16_t b = vm_val_pos((int16_t)getval(x->b));
+          int16_t c = vm_val_pos((int16_t)getval(x->c));
 
           /*
            * If NULL was meant as a variable,
@@ -2247,7 +2248,7 @@ static void bc_assign_slots(struct rules_t *obj) {
           if(gettype(obj->bc.buffer[c]) != OP_SETVAL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
-            if((int8_t)getval(z->a) == d) {
+            if((int16_t)getval(z->a) == d) {
               changed = 1;
               setval(z->a, e);
             }
@@ -2256,7 +2257,7 @@ static void bc_assign_slots(struct rules_t *obj) {
              gettype(obj->bc.buffer[c]) != OP_CALL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              gettype(obj->bc.buffer[c]) != OP_PUSH) {
-            if((int8_t)getval(z->b) == d) {
+            if((int16_t)getval(z->b) == d) {
               changed = 1;
               setval(z->b, e);
             }
@@ -2266,7 +2267,7 @@ static void bc_assign_slots(struct rules_t *obj) {
              gettype(obj->bc.buffer[c]) != OP_CALL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              gettype(obj->bc.buffer[c]) != OP_PUSH) {
-            if((int8_t)getval(z->c) == d) {
+            if((int16_t)getval(z->c) == d) {
               changed = 1;
               setval(z->c, e);
             }
@@ -2333,8 +2334,9 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           }
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
-          int8_t xT = getval(x->type), xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int8_t yA = getval(y->a);
+          uint8_t xT = getval(x->type);
+          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
+          int16_t yA = getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2400,8 +2402,9 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           }
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
-          int8_t xT = getval(x->type), xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int8_t yA = getval(y->a);
+          uint8_t xT = getval(x->type);
+          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
+          int16_t yA = getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2457,7 +2460,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
         }
 
-        if(xB == NULL || gettype(xC->type) == OP_GETVAL || (((int8_t)getval(xB->b) >= 0)+((int8_t)getval(xB->c) >= 0) < ((int8_t)getval(xC->b) >= 0)+((int8_t)getval(xC->c) >= 0))) {
+        if(xB == NULL || gettype(xC->type) == OP_GETVAL || (((int16_t)getval(xB->b) >= 0)+((int16_t)getval(xB->c) >= 0) < ((int16_t)getval(xC->b) >= 0)+((int16_t)getval(xC->c) >= 0))) {
           while(tmp1C < tmp1) {
             struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
             if(!is_op_and_math(gettype(x->type)) && gettype(x->type) != OP_GETVAL) {
@@ -2476,8 +2479,9 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
             }
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
-            int8_t xT = getval(x->type), xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-            int8_t yA = getval(y->a);
+            uint8_t xT = getval(x->type);
+          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
+          int16_t yA = getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2534,7 +2538,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           xC = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
         }
 
-        if(xC == NULL || gettype(xB->type) == OP_GETVAL || (((int8_t)getval(xB->b) >= 0)+((int8_t)getval(xB->c) >= 0) < ((int8_t)getval(xC->b) >= 0)+((int8_t)getval(xC->c) >= 0))) {
+        if(xC == NULL || gettype(xB->type) == OP_GETVAL || (((int16_t)getval(xB->b) >= 0)+((int16_t)getval(xB->c) >= 0) < ((int16_t)getval(xC->b) >= 0)+((int16_t)getval(xC->c) >= 0))) {
           while(tmp1B < tmp1) {
             struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
             if(!is_op_and_math(gettype(x->type)) && gettype(x->type) != OP_GETVAL) {
@@ -2553,8 +2557,9 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
             }
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
-            int8_t xT = getval(x->type), xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-            int8_t yA = getval(y->a);
+            uint8_t xT = getval(x->type);
+          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
+          int16_t yA = getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2617,7 +2622,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
 
       struct vm_top_t *op = (struct vm_top_t *)&obj->bc.buffer[p];
       first = p;
-      heap_in = (int8_t)getval(op->a);
+      heap_in = (int16_t)getval(op->a);
       bc_in = p;
 
       (*pos)++;
@@ -2676,7 +2681,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
           p |= getval((*text)[start+sizeof(uint8_t)+sizeof(uint8_t)]) & 0xFF;
 
           struct vm_top_t *op = (struct vm_top_t *)&obj->bc.buffer[p];
-          d = (int8_t)getval(op->a);
+          d = (int16_t)getval(op->a);
           b = p;
 
           (*pos)++;
@@ -2767,7 +2772,8 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
               struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[tmp2];
 
               if(gettype(x->type) != OP_GETVAL) {
-                int8_t a = (int8_t)getval(x->type), d = (int8_t)getval(x->c);
+                int8_t a = getval(x->type);
+                int16_t d = getval(x->c);
 
                 tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                 if(tmp2B == -1) {
@@ -2841,7 +2847,8 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
 
                 a_a = rule_operators[a_is_op].associativity;
                 if(a_a == 2) {
-                  int8_t a = (int8_t)getval(x->type), d = (int8_t)getval(x->c);
+                  int8_t a = getval(x->type);
+                int16_t d = getval(x->c);
 
                   tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                   if(tmp2B == -1) {
