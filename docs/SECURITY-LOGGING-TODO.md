@@ -20,6 +20,26 @@ Also audit `WiFi.printDiag(loggingSerial)` before and after settings load: these
 
 **Do not publish any original raw console log or real credentials in this document, a PR, or an upstream issue.**
 
+## Diagnostic logging by boot/reset cause — design refinement (2026-11-16)
+
+The full configuration dump was likely intended to help diagnose which settings were loaded at boot. **Keep useful diagnostics while avoiding plaintext secrets.**
+
+ESP32-S3 provides `esp_reset_reason()` with codes such as `ESP_RST_POWERON` (cold boot), `ESP_RST_SW` (e.g. OTA-triggered `esp_restart`), `ESP_RST_PANIC` and watchdog reasons. HeishaMon already reads this information in `HeishaMon.ino`, but currently only *after* `loadSettings()`, in the Rules crash-restart decision; move/read the reason earlier for logging policy.
+
+**Proposed reset-aware log levels:**
+
+| Boot situation | Suggested diagnostic output |
+| --- | --- |
+| Power-on / reset button | Sanitized configuration diagnostics: which settings/options are enabled, connection settings only where relevant and non-sensitive, credential **configured/not configured** |
+| OTA / other software reset | Firmware version, reset reason, config successfully loaded, no configuration dump |
+| Crash, watchdog, brownout | Reset reason, exception/error indicators and safe health diagnostics, no configuration dump |
+
+Note that a physical EN/reset-button press and an actual power-on can be indistinguishable in the reset-reason API; similarly `ESP_RST_SW` is not uniquely proof of OTA. The reset reason is therefore a **diagnostic hint, not an authorization mechanism**. Identifying OTA precisely would require an explicit nonsecret pre-reboot marker, if needed. Even a power-on can be induced or observed by someone else, and startup logs are available through multiple interfaces.
+
+**Credentials must never be logged in plaintext**, regardless of reason. Prefer an allowlist of harmless diagnostics. Avoid a fully expanded settings object on power-on. If more diagnostics are needed, provide an *explicit* authorized diagnostic mode that only exposes safe values and does not run automatically during every reboot.
+
+**Boot-button caution:** `BOOTPIN` is GPIO0 in the ESP32-S3 build. Holding GPIO0 low during reset can select the ROM download mode. In the running firmware the button is already used for factory reset after ~10 seconds. Do **not** propose using a long BOOT-button hold during power-on as the default way to request verbose logs without hardware-specific design/testing.
+
 ## Required next firmware change
 
 1. **Remove the full `serializeJson(jsonDoc, log_msg)` + `log_message(log_msg)` configuration dump** from the normal boot path. Keep a concise status message such as `Configuration loaded` / `Configuration parse failed` without echoing the input.
