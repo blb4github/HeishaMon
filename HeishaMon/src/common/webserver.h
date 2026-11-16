@@ -21,7 +21,7 @@
   #ifdef ESP8266
     #define WEBSERVER_BUFFER_SIZE 128
   #else
-	#define WEBSERVER_BUFFER_SIZE 512  
+    #define WEBSERVER_BUFFER_SIZE 512
   #endif
 #endif
 
@@ -29,8 +29,17 @@
   #define WEBSERVER_MAX_CLIENTS 5
 #endif
 
+/*
+ * Number of sendlist nodes per client (0: unlimited linked list).
+ * The sendlist is the only TX queue. Chunk framing adds a header and a
+ * trailer node around everything that is queued before sending starts, so at
+ * most WEBSERVER_MAX_SENDLIST - 2 content nodes fit. The callback calls for
+ * content 0 and content 1 are both made before the first byte is sent, so
+ * their nodes count together. More than that closes the client instead of
+ * sending a truncated response.
+ */
 #ifndef WEBSERVER_MAX_SENDLIST
-#define WEBSERVER_MAX_SENDLIST 0
+  #define WEBSERVER_MAX_SENDLIST 0
 #endif
 
 #ifndef WEBSERVER_CLIENT_TIMEOUT
@@ -42,6 +51,52 @@
 #endif
 
 #ifndef __linux__
+  #ifndef MEMP_NUM_PBUF
+    #define MEMP_NUM_PBUF 1024
+  #endif
+  #ifndef MEMP_NUM_TCP_PCB
+    #define MEMP_NUM_TCP_PCB 32
+  #endif
+  #ifndef TCP_MSS
+    #define TCP_MSS 1460
+  #endif
+  #ifndef TCP_WND
+    #define TCP_WND (4*TCP_MSS)
+  #endif
+  #ifndef TCP_OVERSIZE
+    #define TCP_OVERSIZE TCP_MSS
+  #endif
+  #ifndef TCP_SND_QUEUELEN
+    #define TCP_SND_QUEUELEN 512
+  #endif
+  #ifndef MEMP_NUM_TCP_SEG
+    #define MEMP_NUM_TCP_SEG 512
+  #endif
+  #ifndef MEM_SIZE
+    #define MEM_SIZE 65000
+  #endif
+  #ifndef PBUF_POOL_SIZE
+    #define PBUF_POOL_SIZE 1024
+  #endif
+  #ifndef IP_FRAG_USES_STATIC_BUF
+    #define IP_FRAG_USES_STATIC_BUF 0
+  #endif
+  #ifndef TCP_SND_BUF
+    #define TCP_SND_BUF 65535
+  #endif
+  #ifndef PBUF_POOL_BUFSIZE
+    #define PBUF_POOL_BUFSIZE LWIP_MEM_ALIGN_SIZE(1528)
+  #endif
+  #ifndef LWIP_TCP_KEEPALIVE
+    #define LWIP_TCP_KEEPALIVE 1
+  #endif
+  #ifndef LWIP_SO_RCVTIMEO
+    #define LWIP_SO_RCVTIMEO 1
+  #endif
+  #ifndef MEMP_SANITY_CHECK
+    #define MEMP_SANITY_CHECK 0
+  #endif
+
   #include <Arduino.h>
   #include "lwip/opt.h"
   #include "lwip/tcp.h"
@@ -111,15 +166,17 @@ struct WiFiClient {
 typedef struct webserver_t {
   tcp_pcb *pcb;
   WiFiClient *client;
+  char ip[17];
+  uint16_t port;
   unsigned long lastseen;
   unsigned long lastping;
-#if defined(ESP32)
-  // Buffered HTTP TX, flushed incrementally from webserver_loop().
-  uint8_t *tx_data;
-  uint16_t tx_used;
+  /* Sync TX state; the queue itself is the sendlist */
   unsigned long tx_last_progress;
-  uint8_t tx_failed;
-#endif
+  uint16_t tx_offset;
+  uint8_t tx_hdr:1;
+  uint8_t tx_framed:1;
+  uint8_t tx_last:1;
+  uint8_t tx_failed:1;
   uint8_t is_websocket:1;
   uint8_t reqtype:1;
   uint8_t async:1;
