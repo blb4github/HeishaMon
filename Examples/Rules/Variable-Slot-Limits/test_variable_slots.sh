@@ -20,9 +20,20 @@ for slots in 127 128 200 255 256; do
         printf '    #slot%03d = #slot%03d;\n' "$((vars-1))" "$((vars-2))"
         printf '    if #slot%03d == %d then\n' "$((vars-1))" "$(((vars-2) % 99))"
         printf '        @SetQuietMode = 2;\n'
+        printf '    end\n'
+        # Copy from the last (potentially >127) slot into the first global
+        # and validate the result. This exercises high-index RHS decoding.
+        printf '    #slot000 = #slot%03d;\n' "$((vars-1))"
+        printf '    if #slot000 == %d then\n' "$(((vars-2) % 99))"
+        printf '        @SetQuietMode = 1;\n'
+        printf '    end\n'
+        # High-index input used in a function argument (OP_PUSH/OP_CALL).
+        printf '    #slot000 = max(#slot%03d, 0);\n' "$((vars-1))"
+        printf '    if #slot000 == %d then\n' "$(((vars-2) % 99))"
+        printf '        @SetQuietMode = 0;\n'
         printf '    end\nend\n'
     } > "$TMP/$slots.rules"
-    printf 'boot\nexpectcmd SetQuietMode 2\nexpectnone\n' > "$TMP/$slots.scenario"
+    printf 'boot\nexpectcmd SetQuietMode 2\nexpectcmd SetQuietMode 1\nexpectcmd SetQuietMode 0\nexpectnone\n' > "$TMP/$slots.scenario"
     if [ "$slots" -le 255 ]; then
         "$HARNESS" "$TMP/$slots.rules" "$TMP/$slots.scenario" > "$TMP/$slots.log" 2>&1 || {
             echo "FAIL: $slots slots must compile and execute"

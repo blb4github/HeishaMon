@@ -65,14 +65,15 @@
 
 typedef struct vm_top_t {
   uint8_t type;
-  int16_t a;
-  int16_t b;
-  int16_t c;
+  int8_t a;
+  int8_t b;
+  int8_t c;
 } __attribute__((aligned(4))) vm_top_t;
 
-// 16-bit signed operands preserve negative heap references and support 255
-// named-variable slots without reinterpreting indices 128..255 as negative.
-static_assert(sizeof(vm_top_t) == 8, "Rules bytecode instruction must occupy 8 bytes");
+// Preserve the original compact VM format. High named-variable indices in
+// unambiguous operands are interpreted as unsigned. For OP_SETVAL, c == 2
+// distinguishes a high unsigned source index from a negative heap reference.
+static_assert(sizeof(vm_top_t) == 4, "Rules bytecode instruction must occupy 4 bytes");
 
 typedef struct vm_vchar_t {
   uint8_t type;
@@ -1684,6 +1685,11 @@ static uint16_t bc_parent(struct rules_t *obj, uint8_t type, int16_t a, int16_t 
 
   assert(size <= getval(obj->bc.bufsize));
   struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[ret];
+  // The high byte of a variable index is data, not a negative heap offset.
+  // Only OP_SETVAL.b is ambiguous; its c field is otherwise unused here.
+  if(type == OP_SETVAL && b > INT8_MAX && c == 0) c = 2;
+  // OP_PUSH already supports a positive variable source via c == 1.
+  if(type == OP_PUSH && a > INT8_MAX && c == 0) c = 1;
   setval(node->type, type);
   setval(node->a, a);
   setval(node->b, b);
@@ -2043,11 +2049,11 @@ static void bc_assign_slots(struct rules_t *obj) {
       }
       struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[a];
       if(max == 0) {
-        if((int16_t)getval(node->a) > 0 &&
+        if((int8_t)getval(node->a) > 0 &&
            gettype(obj->bc.buffer[a]) != OP_JMP &&
            gettype(obj->bc.buffer[a]) != OP_SETVAL) {
           if(!(gettype(obj->bc.buffer[a]) == OP_PUSH && getval(node->c) == 1)) {
-            max = MAX(max, (int16_t)getval(node->a));
+            max = MAX(max, (int8_t)getval(node->a));
           } else {
             max = 1;
           }
@@ -2058,15 +2064,19 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[a]) != OP_SETVAL &&
            !(gettype(obj->bc.buffer[a]) == OP_PUSH && getval(node->c) == 1)
           ) {
-          max = MAX(max, (int16_t)getval(node->a));
+          max = MAX(max, (int8_t)getval(node->a));
         }
         if(tmp > 0 && gettype(obj->bc.buffer[a]) == OP_SETVAL &&
            gettype(obj->bc.buffer[tmp]) == OP_CLEAR && bc_before(a) >= 0) {
           end = bc_before(a);
           break;
         }
+        // OP_SETVAL.a is an unsigned global-variable destination, not a signed
+        // temporary/heap reference. A high destination (128..254) must not
+        // split the statement before SETVAL, or its source stays unresolved.
         if(((c = bc_before(a)) >= 0) &&
-           ((((int16_t)getval(node->a) < 0 && gettype(obj->bc.buffer[a]) != OP_PUSH)) ||
+           ((((int8_t)getval(node->a) < 0 && gettype(obj->bc.buffer[a]) != OP_PUSH &&
+               gettype(obj->bc.buffer[a]) != OP_SETVAL)) ||
            gettype(obj->bc.buffer[a]) == OP_JMP ||
            gettype(obj->bc.buffer[a]) == OP_TEST ||
            gettype(obj->bc.buffer[a]) == OP_RET)) {
@@ -2104,7 +2114,7 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[a];
 
-      int16_t d = (int16_t)getval(x->a);
+      int16_t d = (int8_t)getval(x->a);
       if(!is_op_and_math(gettype(obj->bc.buffer[a])) &&
          gettype(obj->bc.buffer[a]) != OP_GETVAL &&
          gettype(obj->bc.buffer[a]) != OP_CLEAR &&
@@ -2126,10 +2136,10 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       if(z != NULL && gettype(x->type) == OP_CALL &&
          gettype(z->type) == OP_PUSH &&
-         (int16_t)getval(z->a) >= min) {
+         (int8_t)getval(z->a) >= min) {
       } else if(gettype(x->type) != OP_GETVAL &&
-         (((int16_t)getval(x->b) >= vars || (int16_t)getval(x->c) >= vars))) {
-        vars = MAX((int16_t)getval(x->c), (int16_t)getval(x->b));
+         (((int8_t)getval(x->b) >= vars || (int8_t)getval(x->c) >= vars))) {
+        vars = MAX((int8_t)getval(x->c), (int8_t)getval(x->b));
       } else {
         vars--;
       }
@@ -2153,7 +2163,7 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[c]) != OP_CLEAR &&
            gettype(obj->bc.buffer[c]) != OP_SETVAL &&
            !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
-          if((int16_t)getval(z->a) == d) {
+          if((int8_t)getval(z->a) == d) {
             setval(z->a, vars);
           }
         }
@@ -2161,12 +2171,12 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[c]) != OP_CALL &&
            gettype(obj->bc.buffer[c]) != OP_CLEAR &&
            gettype(obj->bc.buffer[c]) != OP_PUSH) {
-          if((int16_t)getval(z->b) == d) {
+          if((int8_t)getval(z->b) == d) {
             setval(z->b, vars);
           }
-          if((int16_t)getval(z->c) == d) {
-            if((int16_t)getval(z->b) == vars) {
-              if((int16_t)getval(z->a) == vars) {
+          if((int8_t)getval(z->c) == d) {
+            if((int8_t)getval(z->b) == vars) {
+              if((int8_t)getval(z->a) == vars) {
                 if(gettype(obj->bc.buffer[c]) != OP_CLEAR &&
                    gettype(obj->bc.buffer[c]) != OP_SETVAL &&
                    !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
@@ -2199,7 +2209,7 @@ static void bc_assign_slots(struct rules_t *obj) {
 
       struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[a];
 
-      int16_t d = (int16_t)getval(x->a);
+      int16_t d = (int8_t)getval(x->a);
 
       tmp = bc_next(obj, a);
 
@@ -2222,8 +2232,8 @@ static void bc_assign_slots(struct rules_t *obj) {
            gettype(obj->bc.buffer[tmp]) != OP_CLEAR) {
           offset++;
         } else if(gettype(obj->bc.buffer[a]) != OP_PUSH) {
-          int16_t b = vm_val_pos((int16_t)getval(x->b));
-          int16_t c = vm_val_pos((int16_t)getval(x->c));
+          int16_t b = vm_val_pos((int8_t)getval(x->b));
+          int16_t c = vm_val_pos((int8_t)getval(x->c));
 
           /*
            * If NULL was meant as a variable,
@@ -2248,7 +2258,7 @@ static void bc_assign_slots(struct rules_t *obj) {
           if(gettype(obj->bc.buffer[c]) != OP_SETVAL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              !(gettype(obj->bc.buffer[c]) == OP_PUSH && getval(z->c) == 1)) {
-            if((int16_t)getval(z->a) == d) {
+            if((int8_t)getval(z->a) == d) {
               changed = 1;
               setval(z->a, e);
             }
@@ -2257,7 +2267,7 @@ static void bc_assign_slots(struct rules_t *obj) {
              gettype(obj->bc.buffer[c]) != OP_CALL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              gettype(obj->bc.buffer[c]) != OP_PUSH) {
-            if((int16_t)getval(z->b) == d) {
+            if((int8_t)getval(z->b) == d) {
               changed = 1;
               setval(z->b, e);
             }
@@ -2267,7 +2277,7 @@ static void bc_assign_slots(struct rules_t *obj) {
              gettype(obj->bc.buffer[c]) != OP_CALL &&
              gettype(obj->bc.buffer[c]) != OP_CLEAR &&
              gettype(obj->bc.buffer[c]) != OP_PUSH) {
-            if((int16_t)getval(z->c) == d) {
+            if((int8_t)getval(z->c) == d) {
               changed = 1;
               setval(z->c, e);
             }
@@ -2305,7 +2315,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if((int16_t)getval(x->a) >= 0) {
+      if((int8_t)getval(x->a) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1 && tmp1B >= limit) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
@@ -2335,8 +2345,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
           uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2373,7 +2383,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if((int16_t)getval(x->a) >= 0) {
+      if((int8_t)getval(x->a) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1 && tmp1B >= limit) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
@@ -2403,8 +2413,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
           uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2441,7 +2451,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
     if(is_op_and_math(gettype(x->type))) {
       tmp1 = nrbytes;
       tmp1C = -1;
-      if((int16_t)getval(x->c) >= 0) {
+      if((int8_t)getval(x->c) >= 0) {
         tmp1C = tmp1;
         while((tmp1C = bc_before(tmp1C)) != -1) {
           struct vm_top_t *xC = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
@@ -2460,7 +2470,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
         }
 
-        if(xB == NULL || gettype(xC->type) == OP_GETVAL || (((int16_t)getval(xB->b) >= 0)+((int16_t)getval(xB->c) >= 0) < ((int16_t)getval(xC->b) >= 0)+((int16_t)getval(xC->c) >= 0))) {
+        if(xB == NULL || gettype(xC->type) == OP_GETVAL || (((int8_t)getval(xB->b) >= 0)+((int8_t)getval(xB->c) >= 0) < ((int8_t)getval(xC->b) >= 0)+((int8_t)getval(xC->c) >= 0))) {
           while(tmp1C < tmp1) {
             struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
             if(!is_op_and_math(gettype(x->type)) && gettype(x->type) != OP_GETVAL) {
@@ -2480,8 +2490,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
             uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2520,7 +2530,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
       tmp1 = nrbytes;
       tmp1B = -1;
 
-      if((int16_t)getval(x->b) >= 0) {
+      if((int8_t)getval(x->b) >= 0) {
         tmp1B = tmp1;
         while((tmp1B = bc_before(tmp1B)) != -1) {
           struct vm_top_t *xB = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
@@ -2538,7 +2548,7 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
           xC = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
         }
 
-        if(xC == NULL || gettype(xB->type) == OP_GETVAL || (((int16_t)getval(xB->b) >= 0)+((int16_t)getval(xB->c) >= 0) < ((int16_t)getval(xC->b) >= 0)+((int16_t)getval(xC->c) >= 0))) {
+        if(xC == NULL || gettype(xB->type) == OP_GETVAL || (((int8_t)getval(xB->b) >= 0)+((int8_t)getval(xB->c) >= 0) < ((int8_t)getval(xC->b) >= 0)+((int8_t)getval(xC->c) >= 0))) {
           while(tmp1B < tmp1) {
             struct vm_top_t *x = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
             if(!is_op_and_math(gettype(x->type)) && gettype(x->type) != OP_GETVAL) {
@@ -2558,8 +2568,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
             uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2622,7 +2632,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
 
       struct vm_top_t *op = (struct vm_top_t *)&obj->bc.buffer[p];
       first = p;
-      heap_in = (int16_t)getval(op->a);
+      heap_in = (int8_t)getval(op->a);
       bc_in = p;
 
       (*pos)++;
@@ -2681,7 +2691,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
           p |= getval((*text)[start+sizeof(uint8_t)+sizeof(uint8_t)]) & 0xFF;
 
           struct vm_top_t *op = (struct vm_top_t *)&obj->bc.buffer[p];
-          d = (int16_t)getval(op->a);
+          d = (int8_t)getval(op->a);
           b = p;
 
           (*pos)++;
@@ -2773,7 +2783,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
 
               if(gettype(x->type) != OP_GETVAL) {
                 int8_t a = getval(x->type);
-                int16_t d = getval(x->c);
+                int16_t d = (int8_t)getval(x->c);
 
                 tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                 if(tmp2B == -1) {
@@ -2848,7 +2858,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
                 a_a = rule_operators[a_is_op].associativity;
                 if(a_a == 2) {
                   int8_t a = getval(x->type);
-                int16_t d = getval(x->c);
+                int16_t d = (int8_t)getval(x->c);
 
                   tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                   if(tmp2B == -1) {
@@ -3126,7 +3136,7 @@ static int16_t rule_create(char **text, struct rules_t *obj) {
             while((lastjmp = bc_before(lastjmp))) {
               if(gettype(obj->bc.buffer[lastjmp]) == OP_JMP) {
                 jmp = (struct vm_top_t *)&obj->bc.buffer[lastjmp];
-                if((int16_t)getval(jmp->b) == depth) {
+                if((int8_t)getval(jmp->b) == depth) {
                   int16_t step = getval(obj->bc.nrbytes);
                   setval(jmp->a, ((step-lastjmp)/sizeof(struct vm_top_t))+1);
                   setval(jmp->b, 0);
@@ -4259,7 +4269,7 @@ static int16_t rule_create(char **text, struct rules_t *obj) {
           while((lastjmp = bc_before(lastjmp))) {
             if(gettype(obj->bc.buffer[lastjmp]) == OP_JMP) {
               jmp = (struct vm_top_t *)&obj->bc.buffer[lastjmp];
-              if((int16_t)getval(jmp->b) == depth) {
+              if((int8_t)getval(jmp->b) == depth) {
                 setval(jmp->b, 0);
                 setval(jmp->a, ((step-lastjmp)/sizeof(struct vm_top_t)));
               }
@@ -4369,20 +4379,20 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_OP_MATH: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-    int16_t a = vm_val_pos((int16_t)getval(node->a));
-    int16_t b = vm_val_pos((int16_t)getval(node->b));
-    int16_t c = vm_val_pos((int16_t)getval(node->c));
+    int16_t a = vm_val_pos((int8_t)getval(node->a));
+    int16_t b = vm_val_pos((int8_t)getval(node->b));
+    int16_t c = vm_val_pos((int8_t)getval(node->c));
 
 #if defined(DEBUG) || defined(COVERALLS)
-    if((int16_t)getval(node->a) >= 0) {
+    if((int8_t)getval(node->a) >= 0) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
-    if((int16_t)getval(node->b) >= 0) {
+    if((int8_t)getval(node->b) >= 0) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
-    if((int16_t)getval(node->c) >= 0) {
+    if((int8_t)getval(node->c) >= 0) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
@@ -4697,7 +4707,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_TEST: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-    int16_t a = vm_val_pos((int16_t)getval(node->a));
+    int16_t a = vm_val_pos((int8_t)getval(node->a));
 
     float x = 0;
     uint8_t x_type = gettype(obj->heap->buffer[a]);
@@ -4754,14 +4764,14 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
 
     uint16_t b = (uint8_t)getval(node->b)*sizeof(struct vm_vchar_t);
-    int16_t a = vm_val_pos(getval(node->a));
+    int16_t a = vm_val_pos((int8_t)getval(node->a));
 
 #if defined(DEBUG) || defined(COVERALLS)
     if((uint8_t)getval(node->b)*sizeof(struct vm_vchar_t) >= varstack->nrbytes) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
-    if((int16_t)getval(node->a) >= 0) {
+    if((int8_t)getval(node->a) >= 0) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
@@ -4847,21 +4857,20 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_SETVAL: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-
 #if defined(DEBUG) || defined(COVERALLS)
     if((uint8_t)getval(node->a)*sizeof(struct vm_vchar_t) >= varstack->nrbytes) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
-    // if((int16_t)getval(node->b) > 0) {
+    // if((int8_t)getval(node->b) > 0) {
       // logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       // return -1;
     // }
 #endif
 
-    if((int16_t)getval(node->b) < 0 && getval(node->c) != 2) {
+    if((int8_t)getval(node->b) < 0 && getval(node->c) != 2) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
-      int16_t b = vm_val_pos((int16_t)getval(node->b));
+      int16_t b = vm_val_pos((int8_t)getval(node->b));
 
 #if defined(DEBUG) || defined(COVERALLS)
       if(b > getval(obj->heap->nrbytes)) {
@@ -4903,7 +4912,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
       memset(stack->buffer, 0, getval(stack->bufsize));
       setval(stack->nrbytes, 4);
-    } else if((int16_t)getval(node->b) > 0 || getval(node->c) == 2) {
+    } else if((int8_t)getval(node->b) > 0 || getval(node->c) == 2) {
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
       uint16_t b = ((uint8_t)getval(node->b)-1)*sizeof(struct vm_vchar_t);
 
@@ -4926,12 +4935,12 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
       setval(stack->nrbytes, 4);
     } else { // node->b == 0
       uint16_t a = (uint8_t)getval(node->a)*sizeof(struct vm_vchar_t);
-      uint16_t b = ((int16_t)getval(node->b)+1)*rule_max_var_bytes();
+      uint16_t b = ((int8_t)getval(node->b)+1)*rule_max_var_bytes();
 
       if(rules_gettop() >= 1) {
         vm_stack_push(a, &varstack->buffer[a]);
         vm_stack_push(b, &stack->buffer[b]);
-        rules_remove((int16_t)getval(node->b)+1);
+        rules_remove((int8_t)getval(node->b)+1);
       } else {
         vm_stack_push(a, &varstack->buffer[a]);
         rules_pushnil();
@@ -4949,8 +4958,8 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
   STEP_PUSH: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-    if((int16_t)getval(node->a) < 0 && getval(node->c) != 1) {
-      int16_t a = vm_val_pos((int16_t)getval(node->a));
+    if((int8_t)getval(node->a) < 0 && getval(node->c) != 1) {
+      int16_t a = vm_val_pos((int8_t)getval(node->a));
 
 #if defined(DEBUG) || defined(COVERALLS)
       if(a > getval(obj->heap->nrbytes)) {
@@ -4982,12 +4991,12 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_CALL: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-    int16_t a = vm_val_pos((int16_t)getval(node->a));
+    int16_t a = vm_val_pos((int8_t)getval(node->a));
     uint16_t b = (uint8_t)getval(node->b);
-    uint16_t c = (int16_t)getval(node->c);
+    uint16_t c = (int8_t)getval(node->c);
 
 #if defined(DEBUG) || defined(COVERALLS)
-    if((int16_t)getval(node->a) > 0) {
+    if((int8_t)getval(node->a) > 0) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
@@ -4995,7 +5004,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
-    if((int16_t)getval(node->c) < 0 || (int16_t)getval(node->c) > 1) {
+    if((int8_t)getval(node->c) < 0 || (int8_t)getval(node->c) > 1) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
       return -1;
     }
@@ -5274,10 +5283,10 @@ static void print_bytecode(struct rules_t *obj) {
     if(type == OP_JMP) {
       printf("%lu\t", (uint8_t)getval(node->a)+(i/sizeof(struct vm_top_t)));
     } else {
-      printf("%d\t", (int16_t)getval(node->a));
+      printf("%d\t", (int8_t)getval(node->a));
     }
-    printf("%d\t", (int16_t)getval(node->b));
-    printf("%d\t", (int16_t)getval(node->c));
+    printf("%d\t", (int8_t)getval(node->b));
+    printf("%d\t", (int8_t)getval(node->c));
     if(get_group(obj->bc.buffer[i])) {
       printf(" // %d", get_group(obj->bc.buffer[i]));
     }
