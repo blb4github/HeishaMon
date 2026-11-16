@@ -2,6 +2,9 @@ on System#Boot then
     #CompState = 1;
     #WCS = 30;
     TaShift2(31);
+    #CompState = 0;
+    #Z1HRT = 27;
+    TaShift2($unused);
 end
 
 on TaShift2($WCS) then
