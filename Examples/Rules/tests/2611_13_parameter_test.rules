@@ -1,0 +1,14 @@
+on System#Boot then
+    #CompState = 1;
+    #WCS = 30;
+    TaShift2(31);
+end
+
+on TaShift2($WCS) then
+    if #CompState > 0 then
+        #Z1HRT = $WCS;
+    end
+    if #Z1HRT != @Z1_Heat_Request_Temp then
+        @SetZ1HeatRequestTemperature = #Z1HRT;
+    end
+end
