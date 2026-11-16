@@ -4763,7 +4763,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     uint16_t b = (uint8_t)getval(node->b)*sizeof(struct vm_vchar_t);
     int16_t a = vm_val_pos((int8_t)getval(node->a));
 #ifndef ESP32
-    if((uint8_t)getval(node->b) >= 190) logprintf_P(F("DIAG GETVAL pos=%u dst=%d var=%u offset=%u"), (unsigned)pos, (int)(int8_t)getval(node->a), (unsigned)(uint8_t)getval(node->b), (unsigned)b);
+    if((uint8_t)getval(node->b) >= 190 || getval(obj->bc.nrbytes)-pos < 40) logprintf_P(F("DIAG GETVAL pos=%u dst=%d var=%u offset=%u"), (unsigned)pos, (int)(int8_t)getval(node->a), (unsigned)(uint8_t)getval(node->b), (unsigned)b);
 #endif
 
 #if defined(DEBUG) || defined(COVERALLS)
@@ -4858,7 +4858,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
   STEP_SETVAL: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
 #ifndef ESP32
-    if((uint8_t)getval(node->a) >= 190) logprintf_P(F("DIAG SETVAL pos=%u dst=%u b=%d braw=%u c=%u"), (unsigned)pos, (unsigned)(uint8_t)getval(node->a), (int)(int8_t)getval(node->b), (unsigned)(uint8_t)getval(node->b), (unsigned)(uint8_t)getval(node->c));
+    if((uint8_t)getval(node->a) >= 190 || getval(obj->bc.nrbytes)-pos < 40) logprintf_P(F("DIAG SETVAL pos=%u dst=%u b=%d braw=%u c=%u"), (unsigned)pos, (unsigned)(uint8_t)getval(node->a), (int)(int8_t)getval(node->b), (unsigned)(uint8_t)getval(node->b), (unsigned)(uint8_t)getval(node->c));
 #endif
 
 #if defined(DEBUG) || defined(COVERALLS)
