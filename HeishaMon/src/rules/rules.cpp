@@ -2071,6 +2071,9 @@ static void bc_assign_slots(struct rules_t *obj) {
           end = bc_before(a);
           break;
         }
+        // OP_SETVAL.a is an unsigned global-variable destination, not a signed
+        // temporary/heap reference. A high destination (128..254) must not
+        // split the statement before SETVAL, or its source stays unresolved.
         if(((c = bc_before(a)) >= 0) &&
            ((((int8_t)getval(node->a) < 0 && gettype(obj->bc.buffer[a]) != OP_PUSH &&
                gettype(obj->bc.buffer[a]) != OP_SETVAL)) ||
