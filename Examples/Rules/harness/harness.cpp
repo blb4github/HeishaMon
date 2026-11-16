@@ -52,6 +52,10 @@
 
 /* ---------- host stubs required by the engine ---------- */
 
+// Host pointers/structures can be larger than device layouts.
+// This 48 KiB capacity is test-only and does NOT change firmware limits.
+// Keep below UINT16_MAX for pbuf.tot_len.
+static constexpr unsigned int HOST_TEST_MEMPOOL_SIZE = 48 * 1024;
 static int verbose = 0;
 
 static void serial_printf(const char *fmt, ...) {
@@ -195,7 +199,7 @@ static int8_t is_variable_cb(char *text, uint16_t size) {
       fprintf(stderr, "!!! unknown @name: %.*s\n", size, text);
       return -1;
     }
-    if(text[0] == '?') return -1; /* OpenTherm not simulated */
+    if(text[0] == '?') return i; /* OpenTherm names accepted syntactically; metadata is not linked in host harness. */
     return i;
   }
   return -1;
@@ -337,8 +341,8 @@ static int parse_rules(const char *path) {
   long len = ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  memset(mempool, 0, MEMPOOL_SIZE);
-  unsigned int txtoffset = alignedbuffer(MEMPOOL_SIZE - len - 5);
+  memset(mempool, 0, HOST_TEST_MEMPOOL_SIZE);
+  unsigned int txtoffset = alignedbuffer(HOST_TEST_MEMPOOL_SIZE - len - 5);
   if(fread(&mempool[txtoffset], 1, len, f) != (size_t)len) { fclose(f); return -1; }
   fclose(f);
 
@@ -346,7 +350,7 @@ static int parse_rules(const char *path) {
   struct pbuf input; memset(&input, 0, sizeof(input));
   mem.payload = mempool;
   mem.len = 0;
-  mem.tot_len = MEMPOOL_SIZE;
+  mem.tot_len = HOST_TEST_MEMPOOL_SIZE;
   input.payload = &mempool[txtoffset];
   input.len = txtoffset;
   input.tot_len = len;
@@ -455,8 +459,8 @@ int main(int argc, char **argv) {
   }
   verbose = getenv("HARNESS_VERBOSE") != NULL;
 
-  mempool = (unsigned char *)malloc(MEMPOOL_SIZE);
-  MMU_SEC_HEAP = malloc(MEMPOOL_SIZE);
+  mempool = (unsigned char *)malloc(HOST_TEST_MEMPOOL_SIZE);
+  MMU_SEC_HEAP = malloc(HOST_TEST_MEMPOOL_SIZE);
 
   memset(&rule_options, 0, sizeof(struct rule_options_t));
   rule_options.is_variable_cb = is_variable_cb;

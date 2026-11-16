@@ -1,0 +1,30 @@
+name: Rules VM 255-slot prototype checks
+
+on:
+  push:
+    branches:
+      - feature/rules-255-variable-slots
+      - experiment/rules-255-compact-bytecode
+  pull_request:
+    paths:
+      - 'HeishaMon/src/rules/**'
+      - 'Examples/Rules/**'
+      - '.github/workflows/rules-vm-255.yml'
+
+jobs:
+  rules-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run existing Rules regression suite
+        run: bash Examples/Rules/run_tests.sh
+      - name: Check slot limit boundaries
+        run: bash Examples/Rules/Variable-Slot-Limits/test_variable_slots.sh
+      - name: Fetch current reference Rules
+        uses: actions/checkout@v4
+        with:
+          repository: blb4github/HeishaMon-Rules-with-Opentherm-Thermostat
+          ref: main
+          path: rules-reference
+      - name: Parse real-world HeishaMon Rules
+        run: HARNESS_VERBOSE=1 ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse
