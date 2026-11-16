@@ -20,6 +20,8 @@ jobs:
         run: bash Examples/Rules/run_tests.sh
       - name: Check slot limit boundaries
         run: bash Examples/Rules/Variable-Slot-Limits/test_variable_slots.sh
+      - name: Reject oversized compact-bytecode jumps
+        run: bash Examples/Rules/Variable-Slot-Limits/test_jump_offsets.sh
       - name: Fetch current reference Rules
         uses: actions/checkout@v4
         with:
