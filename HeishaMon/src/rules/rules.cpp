@@ -4459,7 +4459,6 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
           break;
         }
       }
-      logprintf_P(F("DIAG compact math pos=%u opcode=%u a=%d b=%d c=%d, resolved b=%d type=%u"), (unsigned)pos, (unsigned)type, (int)(int8_t)getval(node->a), (int)(int8_t)getval(node->b), (int)(int8_t)getval(node->c), (int)b, (unsigned)x_type);
       logprintf_P(F("ERROR: cannot compare %s with a left char value"), op);
       return -1;
     }
@@ -4763,9 +4762,6 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 
     uint16_t b = (uint8_t)getval(node->b)*sizeof(struct vm_vchar_t);
     int16_t a = vm_val_pos((int8_t)getval(node->a));
-#ifndef ESP32
-    if((uint8_t)getval(node->b) >= 190 || getval(obj->bc.nrbytes)-pos < 40) logprintf_P(F("DIAG GETVAL pos=%u dst=%d var=%u offset=%u"), (unsigned)pos, (int)(int8_t)getval(node->a), (unsigned)(uint8_t)getval(node->b), (unsigned)b);
-#endif
 
 #if defined(DEBUG) || defined(COVERALLS)
     if((uint8_t)getval(node->b)*sizeof(struct vm_vchar_t) >= varstack->nrbytes) {
@@ -4858,10 +4854,6 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
 /*****************/
   STEP_SETVAL: {
     struct vm_top_t *node = (struct vm_top_t *)&obj->bc.buffer[pos];
-#ifndef ESP32
-    if((uint8_t)getval(node->a) >= 190 || getval(obj->bc.nrbytes)-pos < 40) logprintf_P(F("DIAG SETVAL pos=%u dst=%u b=%d braw=%u c=%u"), (unsigned)pos, (unsigned)(uint8_t)getval(node->a), (int)(int8_t)getval(node->b), (unsigned)(uint8_t)getval(node->b), (unsigned)(uint8_t)getval(node->c));
-#endif
-
 #if defined(DEBUG) || defined(COVERALLS)
     if((uint8_t)getval(node->a)*sizeof(struct vm_vchar_t) >= varstack->nrbytes) {
       logprintf_P(F("FATAL: Internal error in %s #%d pos (%d)"), __FUNCTION__, __LINE__, pos/4);
