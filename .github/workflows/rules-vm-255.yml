@@ -20,11 +20,24 @@ jobs:
         run: bash Examples/Rules/run_tests.sh
       - name: Check slot limit boundaries
         run: bash Examples/Rules/Variable-Slot-Limits/test_variable_slots.sh
+      - name: Reject oversized compact-bytecode jumps
+        run: bash Examples/Rules/Variable-Slot-Limits/test_jump_offsets.sh
       - name: Fetch current reference Rules
         uses: actions/checkout@v4
         with:
           repository: blb4github/HeishaMon-Rules-with-Opentherm-Thermostat
           ref: main
           path: rules-reference
-      - name: Parse real-world HeishaMon Rules
-        run: HARNESS_VERBOSE=1 ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse
+      - name: Validate real-world Rules (accept valid, reject unsafe branches)
+        run: |
+          if HARNESS_VERBOSE=1 ./Examples/Rules/harness/harness rules-reference/HeishaMon_Rules_BlB4.lua parse > reference-parse.log 2>&1; then
+            echo "PASS: real-world reference Rules compiled safely"
+          elif grep -Eq 'ERROR: rule #[0-9]+: conditional jump of [0-9]+ instructions exceeds 255' reference-parse.log &&
+               grep -q 'PARSE FAILED' reference-parse.log; then
+            echo "PASS: legacy real-world Rules rejected for oversized branch (safe failure)"
+            grep 'exceeds 255' reference-parse.log
+          else
+            echo "FAIL: real-world Rules rejected for an unexpected reason"
+            tail -80 reference-parse.log
+            exit 1
+          fi

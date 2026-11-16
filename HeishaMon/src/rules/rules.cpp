@@ -3138,7 +3138,13 @@ static int16_t rule_create(char **text, struct rules_t *obj) {
                 jmp = (struct vm_top_t *)&obj->bc.buffer[lastjmp];
                 if((int8_t)getval(jmp->b) == depth) {
                   int16_t step = getval(obj->bc.nrbytes);
-                  setval(jmp->a, ((step-lastjmp)/sizeof(struct vm_top_t))+1);
+                  int32_t jump = (step-lastjmp)/(int32_t)sizeof(struct vm_top_t)+1;
+                  if(jump > UINT8_MAX) {
+                    logprintf_P(F("ERROR: rule #%d: conditional jump of %ld instructions exceeds 255"),
+                      getval(obj->nr), (long)jump);
+                    return -1;
+                  }
+                  setval(jmp->a, jump);
                   setval(jmp->b, 0);
                   break;
                 }
@@ -4270,8 +4276,14 @@ static int16_t rule_create(char **text, struct rules_t *obj) {
             if(gettype(obj->bc.buffer[lastjmp]) == OP_JMP) {
               jmp = (struct vm_top_t *)&obj->bc.buffer[lastjmp];
               if((int8_t)getval(jmp->b) == depth) {
+                int32_t jump = (step-lastjmp)/(int32_t)sizeof(struct vm_top_t);
+                if(jump > UINT8_MAX) {
+                  logprintf_P(F("ERROR: rule #%d: conditional jump of %ld instructions exceeds 255"),
+                    getval(obj->nr), (long)jump);
+                  return -1;
+                }
                 setval(jmp->b, 0);
-                setval(jmp->a, ((step-lastjmp)/sizeof(struct vm_top_t)));
+                setval(jmp->a, jump);
               }
             }
           }
@@ -4695,6 +4707,7 @@ int8_t rule_run(struct rules_t *obj, uint8_t validate) {
     if(t == 1 || validate == 1) {
       pos += sizeof(struct vm_top_t);
     } else {
+      // OP_JMP stores an unsigned 8-bit instruction count; 128..255 are forward jumps.
       pos += (sizeof(struct vm_top_t)*(uint8_t)getval(node->a));
     }
 
