@@ -1,0 +1,4 @@
+silent Z1_Heat_Request_Temp 30
+boot
+expectcmd SetZ1HeatRequestTemperature 31
+expectnone
