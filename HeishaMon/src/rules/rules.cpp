@@ -2345,8 +2345,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
           uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2413,8 +2413,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
           struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
           uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
           setval(x->type, getval(y->type));
           setval(x->b, getval(y->b));
@@ -2490,8 +2490,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1C];
             uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2568,8 +2568,8 @@ static void bc_math_move_closest(struct rules_t *obj, int16_t limit) {
 
             struct vm_top_t *y = (struct vm_top_t *)&obj->bc.buffer[tmp1B];
             uint8_t xT = getval(x->type);
-          int16_t xA = getval(x->a), xB = getval(x->b), xC = getval(x->c);
-          int16_t yA = getval(y->a);
+          int16_t xA = (int8_t)getval(x->a), xB = (int8_t)getval(x->b), xC = (int8_t)getval(x->c);
+          int16_t yA = (int8_t)getval(y->a);
 
             setval(x->type, getval(y->type));
             setval(x->b, getval(y->b));
@@ -2783,7 +2783,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
 
               if(gettype(x->type) != OP_GETVAL) {
                 int8_t a = getval(x->type);
-                int16_t d = getval(x->c);
+                int16_t d = (int8_t)getval(x->c);
 
                 tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                 if(tmp2B == -1) {
@@ -2858,7 +2858,7 @@ static int32_t bc_parse_math_order(char **text, struct rules_t *obj, uint16_t *p
                 a_a = rule_operators[a_is_op].associativity;
                 if(a_a == 2) {
                   int8_t a = getval(x->type);
-                int16_t d = getval(x->c);
+                int16_t d = (int8_t)getval(x->c);
 
                   tmp2B = bc_find_math_dep(obj, tmp2, getval(x->b));
                   if(tmp2B == -1) {
