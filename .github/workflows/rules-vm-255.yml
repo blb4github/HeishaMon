@@ -5,6 +5,7 @@ on:
     branches:
       - feature/rules-255-variable-slots
       - experiment/rules-255-compact-bytecode
+      - test/2611-13-parameter-handoff
   pull_request:
     paths:
       - 'HeishaMon/src/rules/**'
