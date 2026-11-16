@@ -1,12 +1,12 @@
-# TODO — prevent plaintext configuration and credential leakage in logs
+# TODO — conditional configuration logging based on ESP32 reset reason
 
-**Priority:** security/privacy hardening before the next intentional firmware version.  
-**Status:** OPEN / NOT IMPLEMENTED. The live ESP32-S3 firmware is not changed.  
-**Observed:** 2026-11-16 on ESP32-S3 Alpha-4099e8f during a normal reboot after OTA. This issue also applies to subsequent crash/watchdog reboots because the same boot code runs.
+**Priority:** next planned firmware iteration; not implemented.  
+**Decision:** 2026-11-16, per user's explicit preference: retain existing detailed configuration output on recognized **hardware-initiated resets** (power off/on and physical reset button), but suppress it on **all other reset causes**, including OTA, software restarts, panics, watchdogs and unexplained resets.  
+**Current live firmware:** Alpha-4099e8f; **do not change or flash it to implement this TODO**.
 
-## Precise cause
+## Evidence and root cause
 
-In `HeishaMon/webfunctions.cpp`, `loadSettings()`, immediately after deserializing `/config.json`:
+In `HeishaMon/webfunctions.cpp`, function `loadSettings()`, the complete stored `/config.json` is emitted unconditionally through:
 
 ```cpp
 char log_msg[1024];
@@ -14,49 +14,45 @@ serializeJson(jsonDoc, log_msg);
 log_message(log_msg);
 ```
 
-This logs the complete stored configuration, including sensitive fields such as Wi-Fi, MQTT and OTA passwords. It may also reveal connection details and other identifying configuration. **This is an unconditional startup-log disclosure, not a crash-only problem.** The startup path is reached through `loadSettings(&heishamonSettings)` in `HeishaMon/HeishaMon.ino`.
+This includes sensitive values (e.g. MQTT/OTA/Wi-Fi credentials) if configured. It happens on normal boot, OTA restart and after a crash. The code calls `loadSettings(&heishamonSettings)` from `HeishaMon.ino`. Two `WiFi.printDiag(loggingSerial)` calls also occur in `setup()` and may print Wi-Fi details. Do not publish actual credentials or raw user logs in upstream issues.
 
-Also audit `WiFi.printDiag(loggingSerial)` before and after settings load: these debug outputs should not disclose passwords or other sensitive identifiers. Other diagnostic, serial and web-console output should be inspected for the same class of disclosure.
+## Agreed operating policy
 
-**Do not publish any original raw console log or real credentials in this document, a PR, or an upstream issue.**
-
-## Diagnostic logging by boot/reset cause — design refinement (2026-11-16)
-
-The full configuration dump was likely intended to help diagnose which settings were loaded at boot. **Keep useful diagnostics while avoiding plaintext secrets.**
-
-ESP32-S3 provides `esp_reset_reason()` with codes such as `ESP_RST_POWERON` (cold boot), `ESP_RST_SW` (e.g. OTA-triggered `esp_restart`), `ESP_RST_PANIC` and watchdog reasons. HeishaMon already reads this information in `HeishaMon.ino`, but currently only *after* `loadSettings()`, in the Rules crash-restart decision; move/read the reason earlier for logging policy.
-
-**Proposed reset-aware log levels:**
-
-| Boot situation | Suggested diagnostic output |
+| Reset cause | Proposed logging |
 | --- | --- |
-| Power-on / reset button | Sanitized configuration diagnostics: which settings/options are enabled, connection settings only where relevant and non-sensitive, credential **configured/not configured** |
-| OTA / other software reset | Firmware version, reset reason, config successfully loaded, no configuration dump |
-| Crash, watchdog, brownout | Reset reason, exception/error indicators and safe health diagnostics, no configuration dump |
+| Recognized power-off/on / external hardware reset button | **Preserve the current detailed startup/configuration logging, including settings values as currently shown** (user-requested diagnostic compromise) |
+| OTA firmware upgrade | **No raw configuration**; log reboot reason, firmware build/version, configuration load success/failure, and helpful nonsecret diagnostic information |
+| Explicit software restart (`esp_restart` or equivalent) | Same restricted logging |
+| Panic, exception, watchdog, deadlock | Same restricted logging; include reset reason and safe crash/diagnostic metadata if available |
+| Brownout / power glitch, unknown or ambiguous reset | **Restricted logging by default**; do not classify as a deliberately initiated hardware restart merely because power is involved |
 
-Note that a physical EN/reset-button press and an actual power-on can be indistinguishable in the reset-reason API; similarly `ESP_RST_SW` is not uniquely proof of OTA. The reset reason is therefore a **diagnostic hint, not an authorization mechanism**. Identifying OTA precisely would require an explicit nonsecret pre-reboot marker, if needed. Even a power-on can be induced or observed by someone else, and startup logs are available through multiple interfaces.
+**Security trade-off acknowledged:** intentionally showing the complete configuration for hardware resets still exposes plaintext credentials over whichever serial/web/log paths receive that output. A physical reset might be triggered by a third party or power failure, and logs may be remotely observable afterward. This design reduces exposure on automatic reboots but does **not** eliminate credential logging risk. Treat access to all log receivers and exported logs accordingly. Do not interpret the reset reason as user authentication.
 
-**Credentials must never be logged in plaintext**, regardless of reason. Prefer an allowlist of harmless diagnostics. Avoid a fully expanded settings object on power-on. If more diagnostics are needed, provide an *explicit* authorized diagnostic mode that only exposes safe values and does not run automatically during every reboot.
+## Implementation proposal (ESP32-S3)
 
-**Boot-button caution:** `BOOTPIN` is GPIO0 in the ESP32-S3 build. Holding GPIO0 low during reset can select the ROM download mode. In the running firmware the button is already used for factory reset after ~10 seconds. Do **not** propose using a long BOOT-button hold during power-on as the default way to request verbose logs without hardware-specific design/testing.
+1. Determine reset cause **at the very beginning of `setup()`**, before `loadSettings()` and `WiFi.printDiag`:
+   `esp_reset_reason_t reason = esp_reset_reason();`.
+2. Enable full configuration printing **only for reset-reason values positively confirmed on the target board to correspond to power-on or the physical reset button**. Candidate constants are `ESP_RST_POWERON` and `ESP_RST_EXT`, but the actual reset button/EN wiring and Arduino/ESP-IDF interpretation must be confirmed in a bench test. A dedicated reset button may present as `ESP_RST_POWERON`.
+3. Treat **every other** reset reason as restricted. This includes `ESP_RST_SW`, `ESP_RST_PANIC`, `ESP_RST_INT_WDT`, `ESP_RST_TASK_WDT`, `ESP_RST_WDT`, `ESP_RST_BROWNOUT`, `ESP_RST_PWR_GLITCH`, `ESP_RST_UNKNOWN` and any future/unrecognized codes. Fail closed.
+4. Pass `fullConfigDiagnostics` (or a small diagnostic-policy enum) to `loadSettings()` rather than adding persistent configuration or delaying reset detection until after config load.
+5. When `fullConfigDiagnostics` is false, **do not call `serializeJson(jsonDoc, log_msg)` or `log_message(log_msg)`** on the full document; emit only a short status and error code. Do not create the secret-bearing log string unnecessarily.
+6. Check the two `WiFi.printDiag` calls and any other startup/config dump paths, so restricted resets cannot leak credentials through a second route.
+7. For software/OTA/crash restarts, include safe diagnostics where available: firmware version, reset code + textual cause, config parse status, free heap/PSRAM, and potentially Rules status. A plain `ESP_RST_SW` does not distinguish OTA from other intentional software restarts; that distinction is optional, not necessary for the agreed policy.
+8. Preserve existing functional settings and persistence; do not modify `config.json`, Rules behavior, GPIO33, OpenTherm or heat-pump control.
 
-## Required next firmware change
+**ESP8266:** use equivalent platform-specific reset classification if extending the behavior beyond ESP32-S3; do not automatically assume its reset codes map identically. Separate validation is required.
 
-1. **Remove the full `serializeJson(jsonDoc, log_msg)` + `log_message(log_msg)` configuration dump** from the normal boot path. Keep a concise status message such as `Configuration loaded` / `Configuration parse failed` without echoing the input.
-2. If configuration diagnostics are truly needed, **allowlist safe, non-secret fields**; do not redact only currently known secret keys because future settings might add credentials.
-3. Review and adjust `WiFi.printDiag` and all other startup, post-crash, serial, web-console and persistent log paths for passwords, tokens, passphrases, usernames, keys, and sensitive network/installation identifiers. Prefer omission over displaying a partial credential.
-4. Preserve functioning configuration loading, Wi-Fi, MQTT, OpenTherm, GPIO and Rules. No change to the saved configuration format is intended.
-5. Keep non-sensitive diagnostics (firmware version, reset reason, success/failure of config load, error codes, RAM/heap and Rules status).
+## Tests before next firmware
 
-## Acceptance criteria
-
-- Dummy/sentinel credentials placed in all configured secret fields do **not** appear in serial, web console, MQTT diagnostic output, or retained logs after normal cold boot, OTA reboot, watchdog restart or simulated crash.
-- Malformed `config.json` / parsing errors never echo the raw JSON payload.
-- Normal configuration/feature operation is unchanged, including GPIO33 and the 255-slot Rules build.
-- Verify via a regression test where practical; use synthetic credentials and sanitized logs only.
+- [ ] Real power-cycle: the existing full boot/config diagnostic output still appears.
+- [ ] Physical reset button: identify the actual reset reason, then confirm the expected full output.
+- [ ] OTA firmware update: only reset reason, safe metadata and config load status; none of the sentinel passwords are visible.
+- [ ] Explicit software reset: similarly restricted.
+- [ ] Simulated panic/watchdog and ambiguous brownout/unknown reason: restricted diagnostic output, no raw settings.
+- [ ] Check both Serial and web-console logging; verify no accidental leakage via `WiFi.printDiag`.
+- [ ] Use **synthetic test credentials only**; do not attach real logs to a public PR.
+- [ ] All 16 Rules, 138 variable slots, GPIO33, OpenTherm and Panasonic communications work unchanged.
 
 ## Process
 
-- Keep this security work **separate** from the compact 255-variable-slot Rules VM and experimental async webserver changes.
-- Implement and review before a future firmware rollout; do **not** flash or reboot the operating installation merely to address documentation.
-- After the tested fix, consider submitting a sanitized upstream change to Igor's official HeishaMon repository.
+Separate this diagnostic logging improvement from the 255-slot Rules VM and webserver PRs. Document and test the chosen deliberate security trade-off before any proposal to Igor. This file is a future-work specification; no firmware code has been altered.
