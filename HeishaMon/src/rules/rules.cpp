@@ -2072,7 +2072,8 @@ static void bc_assign_slots(struct rules_t *obj) {
           break;
         }
         if(((c = bc_before(a)) >= 0) &&
-           ((((int8_t)getval(node->a) < 0 && gettype(obj->bc.buffer[a]) != OP_PUSH)) ||
+           ((((int8_t)getval(node->a) < 0 && gettype(obj->bc.buffer[a]) != OP_PUSH &&
+               gettype(obj->bc.buffer[a]) != OP_SETVAL)) ||
            gettype(obj->bc.buffer[a]) == OP_JMP ||
            gettype(obj->bc.buffer[a]) == OP_TEST ||
            gettype(obj->bc.buffer[a]) == OP_RET)) {
